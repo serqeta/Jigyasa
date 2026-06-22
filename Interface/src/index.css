@@ -1,0 +1,103 @@
+/* Convex design system — cream paper engineering notebook */
+:root {
+  --color-ink-black: #141414;
+  --color-paper-white: #ffffff;
+  --color-cream-surface: #f6f6f6;
+  --color-lilac-wash: #f7f1ff;
+  --color-charcoal-surface: #292929;
+  --color-graphite-border: #38383a;
+  --color-slate-text: #4f4f52;
+  --color-fog-text: #6d6d70;
+  --color-ash-text: #a9a9ac;
+  --color-mist-divider: #e5e5e5;
+  --color-signal-blue: #69bee2;
+
+  /* VoiceShield state palette */
+  --state-green-bg: #dcfce7;
+  --state-green-border: #bbf7d0;
+  --state-green-text: #15803d;
+  --state-green-glow: #16a34a;
+
+  --state-amber-bg: #fef9c3;
+  --state-amber-border: #fde68a;
+  --state-amber-text: #a16207;
+  --state-amber-glow: #d97706;
+
+  --state-red-bg: #fee2e2;
+  --state-red-border: #fecaca;
+  --state-red-text: #b91c1c;
+  --state-red-glow: #dc2626;
+
+  --state-grey-bg: #f3f4f6;
+  --state-grey-border: #e5e7eb;
+  --state-grey-text: #4b5563;
+  --state-grey-glow: #6b7280;
+
+  /* Syntax highlight (code blocks only) */
+  --syntax-pink: #fc618d;
+  --syntax-violet: #948ae3;
+  --syntax-green: #7bd88f;
+  --syntax-yellow: #f8e67a;
+
+  --font-primary: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-primary);
+  font-size: 14px;
+  color: var(--color-ink-black);
+  background: var(--color-cream-surface);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: var(--font-primary);
+  cursor: pointer;
+}
+
+input, select, textarea {
+  font-family: var(--font-primary);
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-mist-divider); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-ash-text); }
+
+/* range input */
+input[type="range"] {
+  -webkit-appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-mist-divider);
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-ink-black);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px var(--color-mist-divider);
+}
