@@ -1,0 +1,703 @@
+================================================================================
+VOICESHIELD - STAGE 1 IMPLEMENTATION PLAN
+Real-Time Audio Forensics for AI Voice Fraud Detection
+================================================================================
+Project   : VoiceShield
+Stage     : STAGE 1 (MVP) - Fast Synthetic Voice Detection Pipeline
+Team      : Jigyasa  (Amit Anand, Suraj Harlekar, Aditya Dubey)
+Event     : UCO PSB Hackathon - Problem Statement 2
+Source    : VoiceShield_Updated_Architecture_2_.md   (sections 4-8, 12, 14, 17.1, 18)
+            VoiceShield_Jigyasa.txt                  (problem statement, pipeline I-IV)
+Method    : Task-breakdown -> atomic, testable, dependency-ordered units
+Status    : PLAN  (not yet implemented)
+================================================================================
+
+
+================================================================================
+1. AIM
+================================================================================
+Build an end-to-end Stage 1 vertical slice of VoiceShield that:
+
+  - Captures live (or file-based) call audio at 16 kHz mono.
+  - Processes it in 500 ms chunks held in a 10-second rolling buffer.
+  - Applies an SNR quality gate (per architecture sec. 6).
+  - Extracts forensic features:
+        linear / mel / CQT spectrograms,
+        phase discontinuity heatmap,
+        pitch contour + smoothness,
+        spectral flux,
+        MFCC + delta + delta-delta,
+        subband energy timeline (sec. 7.1 - 7.8).
+  - Runs an AASIST-style anti-spoofing classifier on rolling windows and
+    emits a synthetic-risk score in [0.0, 1.0] (sec. 8).
+  - Maps the score to a colour-coded state: Green / Amber / Red, plus Grey
+    from the SNR gate (sec. 8 + sec. 14).
+  - Maintains a rolling artifact timeline (one entry per 500 ms chunk,
+    sec. 12).
+  - Streams current state and timeline over WebSocket / REST to a minimal
+    advisory dashboard (sec. 15).
+  - Flags a synthetic / cloned / TTS voice as Amber by ~5 s and Red by 8-10 s
+    (sec. 5 - "10-second alert requirement").
+
+Everything beyond this - Stage 2 ensemble, replay detection, full evidence
+export with SHA-256, SIP/VoIP integration, Indian phoneme analysis - is
+EXPLICITLY OUT OF SCOPE for this plan.
+
+
+================================================================================
+2. GOAL / ACCEPTANCE CRITERIA  (must all pass to call Stage 1 "done")
+================================================================================
+G1.  End-to-end pipeline runs from one command on a CPU-only laptop.
+       No GPU required, no network calls for inference.
+
+G2.  Genuine human speech sample -> steady Green state, mean score < 0.30.
+
+G3.  A known synthetic / TTS / cloned WAV sample -> state reaches Amber by
+       <= 5 s and Red by <= 10 s of audio (trigger_time <= 10.0 s).
+
+G4.  Per-chunk latency (capture -> score -> dashboard push) is < 200 ms on
+       a typical CPU (p95).
+
+G5.  SNR gate correctly degrades to "Grey" on a silent or very noisy input
+       (SNR < 8 dB) and is independent of the classifier score.
+
+G6.  Artifact timeline contains exactly one entry per 500 ms chunk with
+       fields { time, score, state, snr_db, top_artifact }.
+
+G7.  Browser-side dashboard updates at least every 500 ms over WebSocket and
+       reflects state changes within 1 chunk.
+
+G8.  Every module ships with unit tests; suite green via `pytest -q`.
+
+G9.  All acceptance tests TEST-E2E10.1 ... TEST-E2E10.5 pass on a clean
+       machine following the README.
+
+G10. No call recording persisted to disk beyond the 10-second in-memory
+       rolling buffer, unless a manual "save for audit" flag is set (the
+       privacy guarantee from sec. 5).
+
+
+================================================================================
+3. SCOPE
+================================================================================
+IN  (Stage 1 / MVP):
+    - Live mic capture + WAV file capture.
+    - 500 ms chunking, 10 s rolling buffer.
+    - SNR quality gate (Normal / Reduced / Grey).
+    - All Stage 1 forensic features (sec. 7).
+    - Stage 1 classifier (AASIST-style) + a rule-based fallback.
+    - Score -> state mapper (Green / Amber / Red / Grey).
+    - Artifact timeline data structure + JSON export of timeline only.
+    - FastAPI backend with WebSocket + REST endpoints.
+    - Minimal single-page HTML/JS advisory dashboard.
+    - pytest suite (unit + integration + end-to-end).
+
+OUT (deferred to Stage 2 / Enhanced Prototype):
+    - Stage 2 ensemble (WavLM, Spectrogram CNN, Phase/Pitch classifier).
+    - Replay detection (reverb, freq response, double compression, bg mismatch).
+    - Full evidence package export (spectrogram PNG, phase heatmap PNG,
+      SHA-256 audio hash, model-scores JSON envelope) - sec. 13.
+    - Risk fusion formula across Stage 1+2+Replay (sec. 14).
+    - SIP / VoIP / PBX / telephony middleware integration.
+    - Multi-tenant call orchestration, K8s deployment, autoscaling.
+    - Indian phoneme analysis, federated learning, fraud graph.
+
+OUT (research / future roadmap):
+    - Physiological liveness veto gate.
+    - National voice trust layer / cross-bank fraud graph.
+    - Secure MPC model sharing.
+
+
+================================================================================
+4. TECH STACK (locked for Stage 1)
+================================================================================
+Language        : Python 3.11+
+Audio I/O       : sounddevice (live), soundfile (WAV), librosa
+Signal / DSP    : numpy, scipy, librosa  (STFT, mel, CQT, MFCC, pYIN F0)
+ML              : torch (CPU build), torchaudio, onnxruntime (optional)
+Stage 1 model   : AASIST-L  (clovaai/aasist) - pre-trained weights
+                   Fallback: lightweight rule-based scorer over phase+pitch+flux
+Backend         : FastAPI + Uvicorn, websockets
+Frontend        : Plain HTML + vanilla JS + Canvas/SVG (no React in Stage 1)
+Testing         : pytest, pytest-asyncio, hypothesis (property tests)
+Tooling         : Poetry or pip-tools, ruff, black, pre-commit
+
+
+================================================================================
+5. PROPOSED REPOSITORY LAYOUT
+================================================================================
+voiceshield/
+  voiceshield/
+    __init__.py
+    config.py                # all constants live here
+    logger.py
+    audio/
+      source.py              # AudioSource ABC, MicSource, FileSource
+      buffer.py              # RollingBuffer
+      resample.py
+    features/
+      spectrogram.py         # linear / mel / CQT
+      phase.py               # phase discontinuity heatmap
+      pitch.py               # F0 + smoothness
+      flux.py
+      mfcc.py
+      subband.py
+      vad.py
+      snr.py
+    classifier/
+      aasist_loader.py
+      aasist_inference.py
+      fallback.py            # rule-based fallback scorer
+      state_mapper.py        # score -> Green/Amber/Red
+    pipeline/
+      runner.py              # ties capture -> features -> classifier -> state
+      timeline.py
+      state_engine.py        # hysteresis + SNR/Stage1 fusion
+    api/
+      app.py                 # FastAPI app factory
+      ws.py                  # /ws/risk
+      rest.py                # /risk/current, /risk/timeline
+    ui/
+      index.html
+      app.js
+      style.css
+  models/
+    aasist_l.pth             # downloaded checkpoint (.gitignored)
+  tests/
+    fixtures/                # tiny WAV samples: genuine, tts, silent, noisy
+    unit/
+    integration/
+    e2e/
+  scripts/
+    run_live.py              # CLI to start mic pipeline + serve dashboard
+    run_file.py              # CLI to feed a WAV into the pipeline
+    download_model.py
+  README.md
+  requirements.txt
+  pyproject.toml
+
+
+================================================================================
+6. TASK BREAKDOWN
+================================================================================
+Format for every task:
+  Tx.y  Title.
+        [INPUTS]   what the task consumes.
+        [OUTPUTS]  what the task produces.
+        [DOD]      definition-of-done; concrete observable.
+        [TESTS]    test IDs that validate it.
+        [DEPS]     upstream tasks that must already be done.
+
+Tasks are atomic. If a task takes > 1 working day, split it.
+
+--------------------------------------------------------------------------------
+PHASE 0 - PROJECT FOUNDATION
+--------------------------------------------------------------------------------
+T0.1  Initialise repository layout per section 5.
+      [OUTPUTS] Folder tree above with __init__.py and README stub.
+      [DOD]     `tree voiceshield` matches section 5 exactly.
+      [TESTS]   TEST-S0.1
+      [DEPS]    -
+
+T0.2  Pin Python dependencies.
+      [OUTPUTS] requirements.txt + pyproject.toml.
+      [DOD]     `pip install -r requirements.txt` succeeds in a clean venv;
+                `python -c "import torch, librosa, fastapi, sounddevice"` ok.
+      [TESTS]   TEST-S0.2
+      [DEPS]    T0.1
+
+T0.3  Global config (voiceshield/config.py).
+      [OUTPUTS] SAMPLE_RATE=16000, CHUNK_MS=500, CHUNK_SAMPLES=8000,
+                BUFFER_SECONDS=10, BUFFER_SAMPLES=160000,
+                SNR_NORMAL_DB=12, SNR_GREY_DB=8,
+                SCORE_AMBER=0.30, SCORE_RED=0.70,
+                STAGE1_WINDOW_SECONDS=4, USE_FALLBACK_CLASSIFIER=False.
+      [DOD]     No magic number duplicated outside this module.
+                `grep -RIn 16000 voiceshield/ | grep -v config.py` -> empty.
+      [TESTS]   TEST-S0.3
+      [DEPS]    T0.1
+
+T0.4  Structured JSON logger.
+      [OUTPUTS] voiceshield/logger.py emits {ts, module, level, event, data}.
+      [DOD]     One log line per chunk processed; parseable as JSON.
+      [TESTS]   TEST-S0.4
+      [DEPS]    T0.1
+
+--------------------------------------------------------------------------------
+PHASE 1 - AUDIO CAPTURE
+--------------------------------------------------------------------------------
+T1.1  AudioSource abstract base class.
+      [OUTPUTS] audio/source.py with `read_chunk() -> np.ndarray` (float32,
+                shape (CHUNK_SAMPLES,), mono, [-1, 1]).
+      [DOD]     Two concrete impls subclass it without modification.
+      [TESTS]   TEST-A1.1
+      [DEPS]    T0.3
+
+T1.2  MicSource using sounddevice.InputStream.
+      [INPUTS]  Default input device, 16 kHz, mono.
+      [OUTPUTS] Stream of 500 ms chunks.
+      [DOD]     `mic.read_chunk().shape == (8000,)`,
+                no buffer underruns at idle.
+      [TESTS]   TEST-A1.2  (manual mic smoke test documented separately)
+      [DEPS]    T1.1
+
+T1.3  FileSource (WAV, optionally MP3 via librosa).
+      [INPUTS]  Path to audio file.
+      [OUTPUTS] 500 ms chunks until EOF; final partial chunk zero-padded.
+      [DOD]     For a 2.0 s file at 16 kHz: yields exactly 4 chunks of 8000.
+      [TESTS]   TEST-A1.3
+      [DEPS]    T1.1
+
+T1.4  Resample + mono utility.
+      [DOD]     8 kHz stereo input -> 16 kHz mono output preserving length
+                (in seconds) within +/- 1 ms.
+      [TESTS]   TEST-A1.4
+      [DEPS]    T1.1
+
+--------------------------------------------------------------------------------
+PHASE 2 - CHUNKING & ROLLING BUFFER
+--------------------------------------------------------------------------------
+T2.1  RollingBuffer (audio/buffer.py).
+      [OUTPUTS] FIFO numpy ring buffer of capacity BUFFER_SAMPLES.
+                Methods: push(chunk), latest(n_samples), full(), size().
+      [DOD]     After 25 pushes of 8000 samples each, size() == 160000.
+      [TESTS]   TEST-B2.1
+      [DEPS]    T0.3
+
+T2.2  Chunk timestamping.
+      [OUTPUTS] Each chunk produces (chunk_index, t_start, t_end) seconds.
+      [DOD]     Timestamps strictly monotonic, contiguous (t_end_k == t_start_k+1).
+      [TESTS]   TEST-B2.2
+      [DEPS]    T2.1
+
+T2.3  Buffer queries.
+      [OUTPUTS] latest_seconds(n) returns np.ndarray of shape (n*SR,) or
+                shorter if buffer not yet full.
+      [DOD]     latest_seconds(4) on a 2-second-old buffer returns 32000
+                samples (the whole buffer), not raise.
+      [TESTS]   TEST-B2.3
+      [DEPS]    T2.1
+
+--------------------------------------------------------------------------------
+PHASE 3 - SNR QUALITY GATE
+--------------------------------------------------------------------------------
+T3.1  Energy-based VAD (features/vad.py).
+      [OUTPUTS] Per-frame is_speech bool, frame=25 ms / hop=10 ms.
+      [DOD]     >= 90% frame accuracy on a labelled clean-speech vs silence
+                clip in tests/fixtures/.
+      [TESTS]   TEST-Q3.1
+      [DEPS]    T0.3
+
+T3.2  SNR estimator (features/snr.py).
+      [INPUTS]  Latest 1 second window.
+      [OUTPUTS] snr_db: float.
+      [DOD]     Clean studio speech -> SNR >= 15 dB.
+                Pure white noise -> SNR <= 3 dB.
+                Silence -> SNR is reported as 0 dB or sentinel, not NaN.
+      [TESTS]   TEST-Q3.2
+      [DEPS]    T3.1
+
+T3.3  Gate decision: enum {NORMAL, REDUCED, GREY} per chunk.
+      [DOD]     Boundaries match architecture sec. 6:
+                  snr_db >= 12 -> NORMAL
+                  8 <= snr_db < 12 -> REDUCED
+                  snr_db < 8 -> GREY
+      [TESTS]   TEST-Q3.3
+      [DEPS]    T3.2
+
+--------------------------------------------------------------------------------
+PHASE 4 - FORENSIC FEATURE EXTRACTION
+--------------------------------------------------------------------------------
+T4.1  Linear STFT spectrogram (features/spectrogram.py:linear).
+      [OUTPUTS] np.ndarray shape (n_fft/2+1, T_frames), magnitude in dB.
+      [DOD]     For a 440 Hz pure tone, peak frequency bin is within
+                +/- 10 Hz of 440.
+      [TESTS]   TEST-F4.1
+      [DEPS]    T0.3
+
+T4.2  Mel spectrogram (features/spectrogram.py:mel).
+      [OUTPUTS] 80 mel bins, T frames.
+      [DOD]     Output is finite (no NaN/Inf), monotonic mel frequency centres.
+      [TESTS]   TEST-F4.2
+      [DEPS]    T0.3
+
+T4.3  CQT spectrogram (features/spectrogram.py:cqt).
+      [OUTPUTS] Constant-Q transform, bins_per_octave=12.
+      [DOD]     Doubling input frequency shifts the peak bin by exactly
+                bins_per_octave bins.
+      [TESTS]   TEST-F4.3
+      [DEPS]    T0.3
+
+T4.4  Phase discontinuity heatmap (features/phase.py).
+      [OUTPUTS] per-(freq, frame) discontinuity score in [0, 1].
+      [DOD]     Pure sine wave -> mean discontinuity < 0.05.
+                White noise   -> mean discontinuity > 0.5.
+      [TESTS]   TEST-F4.4
+      [DEPS]    T4.1
+
+T4.5  Pitch (F0) contour (features/pitch.py).
+      [OUTPUTS] per-frame F0 in Hz; NaN where unvoiced.
+      [DOD]     On a 200 Hz sine, voiced-frame mean F0 within +/- 5 Hz.
+      [TESTS]   TEST-F4.5
+      [DEPS]    T0.3
+
+T4.6  Pitch smoothness metric.
+      [OUTPUTS] scalar: variance of d F0 / dt on voiced frames.
+      [DOD]     Synthetic flat-pitch test fixture yields strictly lower
+                variance than human-speech fixture.
+      [TESTS]   TEST-F4.6
+      [DEPS]    T4.5
+
+T4.7  Spectral flux (features/flux.py).
+      [DOD]     Steady tone flux < speech flux on fixtures.
+      [TESTS]   TEST-F4.7
+      [DEPS]    T4.1
+
+T4.8  MFCC + delta + delta-delta (features/mfcc.py).
+      [OUTPUTS] shape (n_mfcc*3, T).
+      [DOD]     n_mfcc=13 -> output is (39, T).
+      [TESTS]   TEST-F4.8
+      [DEPS]    T0.3
+
+T4.9  Subband energy (features/subband.py).  5 bands per arch sec. 7.8.
+      [OUTPUTS] dict { "breath": dB, "fundamental": dB, "formants": dB,
+                       "consonants": dB, "artifact": dB }.
+      [DOD]     Sum of band linear energies equals total energy within 5%.
+      [TESTS]   TEST-F4.9
+      [DEPS]    T4.1
+
+--------------------------------------------------------------------------------
+PHASE 5 - STAGE 1 CLASSIFIER (AASIST-style)
+--------------------------------------------------------------------------------
+T5.1  Acquire AASIST-L pretrained weights.
+      [OUTPUTS] models/aasist_l.pth (from clovaai/aasist).
+      [DOD]     Checkpoint loads via torch.load without errors.
+                License terms reviewed and recorded in NOTICE.md.
+      [TESTS]   TEST-C5.1
+      [DEPS]    T0.2
+
+T5.2  AASIST preprocess (classifier/aasist_inference.py).
+      [INPUTS]  np.ndarray of last 4 seconds of audio.
+      [OUTPUTS] torch.Tensor shaped for model.forward().
+      [DOD]     Output tensor shape matches model's expected input
+                (typ. (1, 64600) for 4 s at 16.16 kHz, or pad/trim).
+      [TESTS]   TEST-C5.2
+      [DEPS]    T5.1
+
+T5.3  Inference wrapper:
+        classifier.score(audio: np.ndarray) -> float in [0, 1].
+      [DOD]     Returns float in [0, 1].
+                Single call < 100 ms on a 4-core CPU.
+      [TESTS]   TEST-C5.3, TEST-C5.4
+      [DEPS]    T5.2
+
+T5.4  Score -> state mapping (classifier/state_mapper.py).
+      [OUTPUTS] enum {GREEN, AMBER, RED} from score, per arch sec. 8 table.
+      [DOD]     score=0.29 -> GREEN; 0.30 -> AMBER; 0.69 -> AMBER;
+                0.70 -> RED.
+      [TESTS]   TEST-C5.5
+      [DEPS]    T0.3
+
+T5.5  Fallback rule-based classifier (classifier/fallback.py).
+      [DOD]     Toggle USE_FALLBACK_CLASSIFIER=True still produces a [0, 1]
+                score with the same interface.
+                Score is a weighted combination of: pitch smoothness
+                (high -> suspicious), phase discontinuity mean
+                (high -> suspicious), high-band/low-band energy ratio,
+                spectral flux variance.
+      [TESTS]   TEST-C5.6
+      [DEPS]    T4.4, T4.6, T4.7, T4.9
+
+--------------------------------------------------------------------------------
+PHASE 6 - ARTIFACT TIMELINE
+--------------------------------------------------------------------------------
+T6.1  TimelineEntry dataclass.
+      [OUTPUTS] {time: float, score: float, state: str, snr_db: float,
+                 top_artifact: str | None}.
+      [TESTS]   TEST-T6.1
+      [DEPS]    T0.3
+
+T6.2  Timeline ring buffer (last 20 entries == 10 s @ 500 ms).
+      [DOD]     Appending a 21st entry drops entry 0; length stays 20.
+      [TESTS]   TEST-T6.2
+      [DEPS]    T6.1
+
+T6.3  Timeline JSON serializer matching arch sec. 12 example.
+      [DOD]     Output validates against tests/fixtures/timeline.schema.json.
+      [TESTS]   TEST-T6.3
+      [DEPS]    T6.2
+
+--------------------------------------------------------------------------------
+PHASE 7 - RISK STATE ENGINE
+--------------------------------------------------------------------------------
+T7.1  State engine: combine SNR gate + Stage 1 score -> final state.
+      [DOD]     If SNR gate == GREY -> final state == GREY regardless of score.
+                Else final state == state_mapper(score).
+      [TESTS]   TEST-R7.1
+      [DEPS]    T3.3, T5.4
+
+T7.2  Hysteresis: require 2 consecutive chunks above a threshold to escalate;
+      a single off-trend chunk does not flip state.
+      [DOD]     On a fixture with 1 isolated noisy chunk in 10 s of clean
+                speech, state stays GREEN throughout.
+      [TESTS]   TEST-R7.2
+      [DEPS]    T7.1
+
+T7.3  First-alert-time tracking.
+      [OUTPUTS] state engine exposes first_amber_t, first_red_t (None until
+                reached).
+      [TESTS]   TEST-R7.3
+      [DEPS]    T7.1
+
+--------------------------------------------------------------------------------
+PHASE 8 - STREAMING API
+--------------------------------------------------------------------------------
+T8.1  FastAPI app factory (api/app.py).
+      [DOD]     `uvicorn voiceshield.api.app:create_app --factory` starts.
+      [TESTS]   TEST-API8.1
+      [DEPS]    T0.2
+
+T8.2  WebSocket endpoint /ws/risk.
+      [OUTPUTS] On each new chunk, pushes JSON:
+                { time, score, state, snr_db, top_artifact,
+                  first_amber_t, first_red_t }.
+      [DOD]     Client receives >= 1 update / 500 ms while pipeline is live.
+      [TESTS]   TEST-API8.2
+      [DEPS]    T8.1, T7.1
+
+T8.3  GET /risk/current returns latest TimelineEntry.
+      [DOD]     200 OK with the most recent state.
+      [TESTS]   TEST-API8.3
+      [DEPS]    T8.1, T6.2
+
+T8.4  GET /risk/timeline returns the full 10 s timeline as JSON list.
+      [DOD]     Response validates against timeline.schema.json.
+      [TESTS]   TEST-API8.4
+      [DEPS]    T8.1, T6.3
+
+--------------------------------------------------------------------------------
+PHASE 9 - MINIMAL ADVISORY DASHBOARD
+--------------------------------------------------------------------------------
+T9.1  Static index.html connecting to /ws/risk.
+T9.2  Color-coded state badge (Green / Amber / Red / Grey).
+T9.3  Risk score, trigger time, recommended action banner per arch sec. 15.
+T9.4  10 s sparkline of scores (Canvas).
+      [DOD]     Manual smoke test: feeding a synthetic WAV via FileSource
+                visibly turns the badge Amber and then Red within 10 s.
+      [TESTS]   TEST-UI9.1 (smoke), TEST-UI9.2 (visual regression - optional)
+      [DEPS]    T8.2
+
+--------------------------------------------------------------------------------
+PHASE 10 - END-TO-END VALIDATION
+--------------------------------------------------------------------------------
+T10.1 Run pipeline on a known-genuine speech WAV.
+      [DOD]     Mean score over 10 s < 0.30. No RED chunk emitted.
+      [TESTS]   TEST-E2E10.1
+      [DEPS]    all of T1-T8
+
+T10.2 Run pipeline on a known-synthetic / TTS WAV.
+      [DOD]     state == RED at t <= 10 s; first_red_t recorded.
+      [TESTS]   TEST-E2E10.2
+      [DEPS]    all of T1-T8
+
+T10.3 Run pipeline on a silent WAV.
+      [DOD]     state == GREY throughout; classifier score is ignored.
+      [TESTS]   TEST-E2E10.3
+      [DEPS]    all of T1-T8
+
+T10.4 Live mic mode: speak normally for 15 s.
+      [DOD]     No spurious RED chunks; at most 1 isolated AMBER.
+      [TESTS]   TEST-E2E10.4  (manual; checklist in tests/e2e/MANUAL.md)
+      [DEPS]    all of T1-T8
+
+T10.5 Latency benchmark.
+      [DOD]     95th percentile per-chunk processing time < 200 ms over 60 s
+                of live audio on a 4-core CPU.
+      [TESTS]   TEST-E2E10.5
+      [DEPS]    all of T1-T8
+
+
+================================================================================
+7. TEST CATALOGUE
+================================================================================
+Naming     : TEST-<area><taskId>
+Locations  :
+  Unit         tests/unit/test_<module>.py
+  Integration  tests/integration/test_<flow>.py
+  E2E          tests/e2e/test_pipeline.py
+Fixtures   : tests/fixtures/
+               genuine_male_16k.wav      (~15 s, real human)
+               genuine_female_16k.wav    (~15 s, real human)
+               tts_synthetic_16k.wav     (~15 s, off-the-shelf TTS)
+               cloned_voice_16k.wav      (~15 s, cloned via free tool)
+               silent_16k.wav            (~15 s of silence)
+               noisy_16k.wav             (~15 s of white/pink noise)
+               flat_pitch_16k.wav        (synthetic, flat F0)
+               tone_440hz_16k.wav        (pure tone)
+               tone_200hz_16k.wav        (pure tone)
+               sine_then_doubled_16k.wav (440 Hz -> 880 Hz for CQT test)
+
+--------------------------------------------------------------------------------
+UNIT TESTS
+--------------------------------------------------------------------------------
+TEST-S0.1   Repo layout exists; all expected dirs present.
+TEST-S0.2   `pip install -r requirements.txt` exit code 0;
+            critical imports succeed.
+TEST-S0.3   Every constant in config.py has a single canonical definition;
+            `grep` shows no duplicates elsewhere.
+TEST-S0.4   Logger emits valid JSON lines; one per chunk in a 1 s smoke run.
+
+TEST-A1.1   AudioSource is abstract; instantiating it raises TypeError.
+TEST-A1.2   MicSource read_chunk() shape == (8000,) and dtype == float32.
+            (Skipped in CI; manual mic checklist.)
+TEST-A1.3   FileSource on a 2 s file yields exactly 4 chunks of 8000 samples;
+            last chunk on a 1.7 s file is zero-padded to 8000.
+TEST-A1.4   Resample 8 kHz stereo WAV -> 16 kHz mono; length error < 1 ms.
+
+TEST-B2.1   25 pushes -> buffer.size() == 160000; 26th push keeps size 160000
+            and the oldest 8000 samples are gone.
+TEST-B2.2   chunk_index monotonic; t_end[k] == t_start[k+1].
+TEST-B2.3   latest_seconds(4) on a 2 s buffer returns the 32000 available.
+
+TEST-Q3.1   VAD frame accuracy >= 90% on labelled fixture.
+TEST-Q3.2   SNR on genuine_male_16k.wav >= 15 dB;
+            SNR on noisy_16k.wav <= 3 dB.
+TEST-Q3.3   Gate maps {15: NORMAL, 10: REDUCED, 5: GREY}.
+
+TEST-F4.1   STFT peak bin within +/- 10 Hz for tone_440hz_16k.wav.
+TEST-F4.2   Mel spectrogram has 80 bins and is finite.
+TEST-F4.3   CQT peak shifts by bins_per_octave between
+            tone_440hz and tone_880hz (or input doubled).
+TEST-F4.4   Phase discontinuity: mean < 0.05 on sine, > 0.5 on white noise.
+TEST-F4.5   F0 on tone_200hz_16k.wav within +/- 5 Hz of 200.
+TEST-F4.6   Smoothness(flat_pitch) < Smoothness(genuine_male).
+TEST-F4.7   Flux(steady tone) < Flux(genuine_male).
+TEST-F4.8   MFCC shape (39, T) with n_mfcc=13.
+TEST-F4.9   Sum of band linear energies within 5% of total.
+
+TEST-C5.1   torch.load of models/aasist_l.pth succeeds.
+TEST-C5.2   Preprocess output tensor matches model expected input shape.
+TEST-C5.3   score(audio) returns float in [0.0, 1.0].
+TEST-C5.4   score() latency < 100 ms p95 over 50 calls on a 4-core CPU.
+TEST-C5.5   state_mapper boundaries: 0.29->GREEN, 0.30->AMBER,
+            0.69->AMBER, 0.70->RED.
+TEST-C5.6   Fallback classifier returns [0, 1] and is strictly higher on
+            tts_synthetic_16k.wav than on genuine_male_16k.wav.
+
+TEST-T6.1   TimelineEntry has exactly the documented fields.
+TEST-T6.2   Ring buffer drops oldest at capacity 20.
+TEST-T6.3   JSON output validates against timeline.schema.json.
+
+TEST-R7.1   SNR GREY overrides score; final state == GREY.
+TEST-R7.2   Single noisy chunk in 10 s of clean audio does NOT escalate.
+TEST-R7.3   first_red_t == time at which the first RED chunk appeared.
+
+--------------------------------------------------------------------------------
+INTEGRATION TESTS
+--------------------------------------------------------------------------------
+TEST-INT.1  FileSource -> buffer -> SNR -> features -> classifier ->
+            state engine produces a TimelineEntry stream for a 10 s WAV.
+TEST-INT.2  Timeline export after a 10 s run has exactly 20 entries with
+            monotonic times.
+TEST-INT.3  Toggling USE_FALLBACK_CLASSIFIER produces a valid timeline with
+            no exceptions.
+
+--------------------------------------------------------------------------------
+API TESTS
+--------------------------------------------------------------------------------
+TEST-API8.1 GET /healthz returns 200.
+TEST-API8.2 WS /ws/risk receives >= 18 messages in 10 s while FileSource
+            is feeding the pipeline.
+TEST-API8.3 GET /risk/current returns 200 + latest entry.
+TEST-API8.4 GET /risk/timeline returns 200 + schema-valid list.
+
+--------------------------------------------------------------------------------
+END-TO-END ACCEPTANCE TESTS  (gate Stage 1 "done")
+--------------------------------------------------------------------------------
+TEST-E2E10.1  genuine_male_16k.wav  -> mean(score) < 0.30, no RED chunk.
+TEST-E2E10.2  tts_synthetic_16k.wav -> first_red_t <= 10.0 s.
+TEST-E2E10.3  silent_16k.wav        -> state == GREY for all chunks.
+TEST-E2E10.4  cloned_voice_16k.wav  -> first_amber_t <= 5.0 s and
+                                       first_red_t <= 10.0 s.
+TEST-E2E10.5  p95 per-chunk latency < 200 ms over a 60 s run.
+
+
+================================================================================
+8. SUGGESTED EXECUTION ORDER
+================================================================================
+Day 1 :  T0.1 - T0.4, T1.1 - T1.4, T2.1 - T2.3.    (foundation + audio I/O)
+Day 2 :  T3.1 - T3.3, T4.1 - T4.5.                  (quality gate + half of features)
+Day 3 :  T4.6 - T4.9, T6.1 - T6.3.                  (rest of features + timeline)
+Day 4 :  T5.1 - T5.5.                                (Stage 1 classifier + fallback)
+Day 5 :  T7.1 - T7.3, T8.1 - T8.4.                  (state engine + API)
+Day 6 :  T9.1 - T9.4.                                (dashboard)
+Day 7 :  T10.1 - T10.5 acceptance run; fix gaps;
+         freeze Stage 1.
+
+Total estimate : ~7 working days for a small team that already knows Python.
+
+
+================================================================================
+9. RISK REGISTER
+================================================================================
+R1.  AASIST-L weights licensing - confirm permitted use for the hackathon
+     demo. Fallback: T5.5 rule-based classifier always usable.
+
+R2.  Live mic capture is platform-dependent (PortAudio).
+     Mitigation: keep FileSource as the primary CI path, mic as demo-only.
+
+R3.  Synthetic / cloned voice may not produce strong artifacts on top-tier
+     TTS systems.  Acceptance tests must use a curated, known-detectable
+     sample for the hackathon demo.  Future Stage 2 ensemble is what
+     hardens this.
+
+R4.  Latency budget (G4) may be tight on low-end CPUs.
+     Mitigation: ONNX-export AASIST and benchmark in T5.3.
+
+R5.  pYIN F0 can be slow.  If T4.5/T4.6 dominate latency, switch to
+     librosa.pyin with shorter frames or use a lightweight autocorrelation
+     pitch tracker.
+
+R6.  Hysteresis (T7.2) can suppress true positives.
+     Mitigation: pin the rule to 2 consecutive chunks for AMBER escalation
+     only; allow immediate RED if score > 0.85 in a single chunk.
+
+
+================================================================================
+10. STAGE-2 HAND-OFF NOTES (out-of-scope here but designed-for)
+================================================================================
+The following extension points must be preserved by Stage 1 implementers so
+Stage 2 can plug in without refactoring:
+
+  - classifier package exposes a Scorer protocol with .score(audio) -> float.
+    Stage 2 adds WavLMScorer, SpectrogramCNNScorer, PhasePitchScorer
+    implementing the same protocol.
+
+  - pipeline.state_engine.compute_final accepts an arbitrary dict of
+    component scores, with stage1 the only key in Stage 1.  Risk fusion in
+    Stage 2 simply passes more keys.
+
+  - TimelineEntry already carries snr_db and top_artifact, sufficient for
+    Stage 2 evidence enrichment.
+
+  - The /risk/* REST contract is versioned (/v1/); Stage 2 adds /v2/
+    without breaking Stage 1 clients.
+
+  - All audio handled is the same 16 kHz mono float32 contract end-to-end.
+
+
+================================================================================
+11. REFERENCES (source-of-truth mapping)
+================================================================================
+Stage 1 scope        : VoiceShield_Updated_Architecture_2_.md  sec. 8, 17.1
+Real-time data flow  : VoiceShield_Updated_Architecture_2_.md  sec. 5
+SNR gate             : VoiceShield_Updated_Architecture_2_.md  sec. 6
+Feature definitions  : VoiceShield_Updated_Architecture_2_.md  sec. 7.1 - 7.8
+Timeline format      : VoiceShield_Updated_Architecture_2_.md  sec. 12
+State table          : VoiceShield_Updated_Architecture_2_.md  sec. 8, 14
+Pipeline I-IV        : VoiceShield_Jigyasa.txt                 pp. 6-9
+Tech stack guidance  : VoiceShield_Jigyasa.txt                 p. 18
+
+================================================================================
+END OF PLAN
+================================================================================
