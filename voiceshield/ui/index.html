@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoiceShield — Advisory Dashboard</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<div class="card state-grey" id="card">
+
+  <div class="header">
+    <span class="title">VoiceShield &mdash; Live Call Monitor</span>
+    <span class="clock" id="clock">--:--:--</span>
+  </div>
+
+  <div class="badge-row">
+    <div class="badge state-grey" id="badge">GREY</div>
+    <div class="meta">
+      <div class="score-val" id="score">0.000</div>
+      <div class="meta-row">Trigger: <span id="trigger">—</span></div>
+      <div class="meta-row">Artifact: <span id="artifact">—</span></div>
+    </div>
+  </div>
+
+  <div class="action-banner state-grey" id="action">
+    Waiting for audio stream…
+  </div>
+
+  <div class="sparkline-section">
+    <div class="sparkline-label">Risk score — last 10 s</div>
+    <canvas id="sparkline" height="56"></canvas>
+  </div>
+
+  <div class="status-bar">
+    <span class="dot disconnected" id="dot"></span>
+    <span id="status-text">Connecting…</span>
+  </div>
+
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
