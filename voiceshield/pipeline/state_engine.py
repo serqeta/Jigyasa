@@ -2,67 +2,85 @@ from voiceshield.classifier.protocol import RiskState
 from voiceshield.classifier.state_mapper import score_to_state
 from voiceshield.features import GateState
 
-# Single-chunk score that bypasses hysteresis and forces immediate RED
+# Score threshold to bypass hysteresis and jump straight to RED
 _RED_OVERRIDE_THRESHOLD = 0.85
-# Consecutive chunks required to escalate
-_HYSTERESIS_CHUNKS = 2
+# Consecutive suspicious chunks needed to escalate GREEN → AMBER / AMBER → RED
+_ESCALATE_CHUNKS = 2
+# Consecutive clean (green-scoring) chunks needed to de-escalate AMBER → GREEN.
+# RED never de-escalates automatically — it requires an explicit reset.
+# 4 chunks = 2 seconds of sustained clean audio, which is enough to clear a
+# brief mic noise spike without masking a real attack.
+_DEESCALATE_AMBER_CHUNKS = 4
 
 
 class StateEngine:
     """
-    Tracks risk state across chunks with hysteresis, Grey override, and
+    Tracks risk state across chunks with hysteresis, grey override, and
     first-alert-time latching.
+
+    Escalation: GREEN → AMBER after _ESCALATE_CHUNKS suspicious chunks.
+                AMBER → RED  after _ESCALATE_CHUNKS suspicious chunks.
+                RED    instant at score >= _RED_OVERRIDE_THRESHOLD.
+
+    De-escalation: AMBER → GREEN after _DEESCALATE_AMBER_CHUNKS consecutive
+                   clean chunks. RED never de-escalates (requires reset).
     """
 
     def __init__(self) -> None:
         self.first_amber_t: float | None = None
         self.first_red_t: float | None = None
-        self._consec_amber = 0
+        self._consec_suspicious = 0  # amber-or-red streak
         self._consec_red = 0
+        self._consec_clean = 0       # green streak (for de-escalation)
         self._current: RiskState = RiskState.GREEN
 
     def update(self, score: float, gate: GateState, t_end: float) -> RiskState:
-        # Rule 1: GREY gate overrides score, but respects latched escalated states
+        # Grey gate: no speech or poor SNR — pause scoring, hold current state
+        # if already escalated, reset counters but don't de-escalate.
         if gate is GateState.GREY:
-            self._consec_amber = 0
+            self._consec_suspicious = 0
             self._consec_red = 0
+            self._consec_clean = 0
             if self._current in (RiskState.AMBER, RiskState.RED):
                 return self._current
             return RiskState.GREY
 
-        # Rule 2: single-chunk short-circuit to RED at very high confidence
+        # Instant RED at very high single-chunk confidence
         if score >= _RED_OVERRIDE_THRESHOLD:
-            self._consec_amber = _HYSTERESIS_CHUNKS
-            self._consec_red = _HYSTERESIS_CHUNKS
+            self._consec_suspicious = _ESCALATE_CHUNKS
+            self._consec_red = _ESCALATE_CHUNKS
+            self._consec_clean = 0
             self._latch(RiskState.RED, t_end)
             self._current = RiskState.RED
             return RiskState.RED
 
-        # Rule 3: hysteresis counters
         raw = score_to_state(score)
+        is_suspicious = raw in (RiskState.AMBER, RiskState.RED)
 
-        if raw in (RiskState.AMBER, RiskState.RED):
-            self._consec_amber += 1
+        if is_suspicious:
+            self._consec_suspicious += 1
+            self._consec_red = self._consec_red + 1 if raw is RiskState.RED else 0
+            self._consec_clean = 0
         else:
-            self._consec_amber = 0
-
-        if raw is RiskState.RED:
-            self._consec_red += 1
-        else:
+            self._consec_suspicious = 0
             self._consec_red = 0
+            self._consec_clean += 1
 
-        # Effective state — never de-escalate once reached
-        if self._consec_red >= _HYSTERESIS_CHUNKS:
+        # --- Escalation ---
+        if self._consec_red >= _ESCALATE_CHUNKS:
             final = RiskState.RED
-        elif self._consec_amber >= _HYSTERESIS_CHUNKS:
-            final = RiskState.AMBER
+        elif self._consec_suspicious >= _ESCALATE_CHUNKS:
+            final = RiskState.AMBER if self._current is RiskState.GREEN else RiskState.RED \
+                if self._current is RiskState.RED else RiskState.AMBER
+        # --- De-escalation ---
+        elif self._current is RiskState.RED:
+            # RED never auto-de-escalates
+            final = RiskState.RED
+        elif self._current is RiskState.AMBER:
+            # AMBER → GREEN after sustained clean audio
+            final = RiskState.GREEN if self._consec_clean >= _DEESCALATE_AMBER_CHUNKS else RiskState.AMBER
         else:
-            if self._current is RiskState.RED:
-                final = RiskState.RED
-            elif self._current is RiskState.AMBER:
-                final = RiskState.AMBER
-            else:
-                final = RiskState.GREEN
+            final = RiskState.GREEN
 
         self._latch(final, t_end)
         self._current = final

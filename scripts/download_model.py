@@ -1,5 +1,5 @@
 """
-Download the AASIST-L pretrained checkpoint from the clovaai/aasist release.
+Download the AASIST-L pretrained checkpoint from the clovaai/aasist repository.
 
 Usage:
     python scripts/download_model.py
@@ -13,19 +13,15 @@ import urllib.request
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
 MODEL_PATH = os.path.join(MODELS_DIR, "aasist_l.pth")
 
-# Google Drive direct download URL for the AASIST-L checkpoint
-# Source: https://github.com/clovaai/aasist (MIT License)
-# File ID from the repo's README
-_FILE_ID = "1-YLXv65WBYJm84h0CbEYuqWL8CAvXJSM"
-_GDRIVE_URL = f"https://drive.google.com/uc?export=download&id={_FILE_ID}"
-
-# SHA-256 of the official checkpoint (update if the upstream file changes)
-_EXPECTED_SHA256 = None  # set to the hash once you have the file
+# GitHub raw URL for the AASIST-L checkpoint.
+# Source: https://github.com/clovaai/aasist  (MIT License)
+_URL = "https://raw.githubusercontent.com/clovaai/aasist/main/models/weights/AASIST-L.pth"
 
 
 def download(url: str, dest: str) -> None:
-    print(f"Downloading {url}")
-    print(f"  → {dest}")
+    print(f"Downloading AASIST-L checkpoint…")
+    print(f"  Source : {url}")
+    print(f"  Dest   : {dest}")
     try:
         urllib.request.urlretrieve(url, dest, _progress)
         print()
@@ -39,40 +35,20 @@ def _progress(count: int, block: int, total: int) -> None:
     print(f"\r  {pct:3d}%", end="", flush=True)
 
 
-def verify(path: str) -> None:
-    if _EXPECTED_SHA256 is None:
-        print("  (SHA-256 check skipped — hash not configured)")
-        return
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    got = h.hexdigest()
-    if got != _EXPECTED_SHA256:
-        print(f"  SHA-256 MISMATCH!\n  Expected: {_EXPECTED_SHA256}\n  Got:      {got}", file=sys.stderr)
-        sys.exit(1)
-    print(f"  SHA-256 OK: {got[:16]}…")
-
-
 def main() -> None:
     os.makedirs(MODELS_DIR, exist_ok=True)
 
     if os.path.exists(MODEL_PATH):
-        print(f"Model already exists at {MODEL_PATH}")
-        verify(MODEL_PATH)
+        size_kb = os.path.getsize(MODEL_PATH) / 1024
+        print(f"Model already present: {MODEL_PATH} ({size_kb:.0f} KB)")
         return
 
-    print("Fetching AASIST-L checkpoint…")
-    print("  License: MIT — clovaai/aasist")
-    print()
+    print("Fetching AASIST-L checkpoint (clovaai/aasist, MIT License)…\n")
+    download(_URL, MODEL_PATH)
 
-    download(_GDRIVE_URL, MODEL_PATH)
-    verify(MODEL_PATH)
-
-    size_mb = os.path.getsize(MODEL_PATH) / 1_048_576
-    print(f"Saved {size_mb:.1f} MB → {MODEL_PATH}")
-    print("\nDone. You can now run:")
-    print("  python scripts/run_file.py <wav>")
+    size_kb = os.path.getsize(MODEL_PATH) / 1024
+    print(f"Saved {size_kb:.0f} KB → {MODEL_PATH}")
+    print("\nDone. Run:  python scripts/run_live.py")
 
 
 if __name__ == "__main__":

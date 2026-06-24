@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from voiceshield import config
 from voiceshield.api.rest import router as rest_router
 from voiceshield.api.ws import manager, ws_risk_endpoint
 
@@ -60,12 +61,22 @@ def create_app(runner: Any | None = None) -> FastAPI:
 
 
 def _warmup_jit() -> None:
-    """Call each librosa function once to trigger numba JIT before the first request."""
+    """Warm every analysis path once so the first live chunk isn't slow.
+
+    numba-backed librosa functions (yin, cqt, delta) compile on first call,
+    adding several seconds. Use a non-trivial tone over a full Stage-1 window
+    so the voiced/feature branches actually execute.
+    """
     import numpy as np
 
-    from voiceshield.pipeline.runner import _extract_features
+    from voiceshield.pipeline.runner import _extract_features, _extract_rich_visuals
 
-    _extract_features(np.zeros(8000, dtype=np.float32))
+    n = config.SAMPLE_RATE * config.STAGE1_WINDOW_SECONDS
+    t = np.linspace(0, config.STAGE1_WINDOW_SECONDS, n, endpoint=False, dtype=np.float32)
+    warm = (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+
+    _extract_features(warm)
+    _extract_rich_visuals(warm)
 
 
 async def _pipeline_loop(runner: Any) -> None:

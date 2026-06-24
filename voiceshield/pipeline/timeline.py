@@ -14,6 +14,13 @@ class TimelineEntry:
     top_artifact: str | None
     first_amber_t: float | None
     first_red_t: float | None
+    speech_active: bool = True
+    voiced_ratio: float = 0.0
+    spec_linear: list[list[float]] | None = None
+    spec_mel: list[list[float]] | None = None
+    spec_cqt: list[list[float]] | None = None
+    pitch_contour: list[float | None] | None = None
+    phase_contour: list[float] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

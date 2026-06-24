@@ -22,7 +22,8 @@ class AASISTScorer:
     def score(self, audio: np.ndarray) -> float:
         x = self._preprocess(audio)
         with torch.no_grad():
-            logits = self._model(x)  # (1, 2): [bonafide, spoof]
+            # Model returns (last_hidden, logits); logits shape: (1, 2) = [bonafide, spoof]
+            _, logits = self._model(x)
         probs = torch.softmax(logits, dim=-1)
         spoof_prob = float(probs[0, 1].item())
         return float(np.clip(spoof_prob, 0.0, 1.0))

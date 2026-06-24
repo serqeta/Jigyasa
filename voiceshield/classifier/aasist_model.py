@@ -1,366 +1,411 @@
 """
-AASIST-L architecture.
-Adapted from clovaai/aasist (MIT License) for local weight loading.
-Config: first_conv=128, filts=[24,[1,32],[32,32],[32,32],[32,32]],
-        gat_dims=[64,32], pool_ratios=[0.5,0.5,0.5,0.5]
+AASIST — official implementation, verbatim from clovaai/aasist (MIT License).
+Copyright (c) 2021-present NAVER Corp.
+
+Only change from upstream: added `AASIST = Model` alias so the rest of the
+codebase can import `from voiceshield.classifier.aasist_model import AASIST`.
 """
 
-import math
+import random
+from typing import Union
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-# ---------------------------------------------------------------------------
-# Sinc filter bank (SincNet-style)
-# ---------------------------------------------------------------------------
+from torch import Tensor
 
 
-class SincConv(nn.Module):
-    """Learnable sinc filter bank for raw waveform."""
-
-    window_: torch.Tensor
-    n_: torch.Tensor
-    low_hz_: nn.Parameter
-    band_hz_: nn.Parameter
-
-    @staticmethod
-    def to_mel(hz: float) -> float:
-        return 2595.0 * math.log10(1.0 + hz / 700.0)
-
-    @staticmethod
-    def to_hz(mel: float) -> float:
-        return 700.0 * (10.0 ** (mel / 2595.0) - 1.0)
-
-    def __init__(
-        self,
-        out_channels: int,
-        kernel_size: int,
-        sample_rate: int = 16000,
-        min_low_hz: float = 50.0,
-        min_band_hz: float = 50.0,
-    ):
+class GraphAttentionLayer(nn.Module):
+    def __init__(self, in_dim, out_dim, **kwargs):
         super().__init__()
+
+        self.att_proj = nn.Linear(in_dim, out_dim)
+        self.att_weight = self._init_new_params(out_dim, 1)
+
+        self.proj_with_att = nn.Linear(in_dim, out_dim)
+        self.proj_without_att = nn.Linear(in_dim, out_dim)
+
+        self.bn = nn.BatchNorm1d(out_dim)
+        self.input_drop = nn.Dropout(p=0.2)
+        self.act = nn.SELU(inplace=True)
+
+        self.temp = 1.
+        if "temperature" in kwargs:
+            self.temp = kwargs["temperature"]
+
+    def forward(self, x):
+        x = self.input_drop(x)
+        att_map = self._derive_att_map(x)
+        x = self._project(x, att_map)
+        x = self._apply_BN(x)
+        x = self.act(x)
+        return x
+
+    def _pairwise_mul_nodes(self, x):
+        nb_nodes = x.size(1)
+        x = x.unsqueeze(2).expand(-1, -1, nb_nodes, -1)
+        x_mirror = x.transpose(1, 2)
+        return x * x_mirror
+
+    def _derive_att_map(self, x):
+        att_map = self._pairwise_mul_nodes(x)
+        att_map = torch.tanh(self.att_proj(att_map))
+        att_map = torch.matmul(att_map, self.att_weight)
+        att_map = att_map / self.temp
+        att_map = F.softmax(att_map, dim=-2)
+        return att_map
+
+    def _project(self, x, att_map):
+        x1 = self.proj_with_att(torch.matmul(att_map.squeeze(-1), x))
+        x2 = self.proj_without_att(x)
+        return x1 + x2
+
+    def _apply_BN(self, x):
+        org_size = x.size()
+        x = x.view(-1, org_size[-1])
+        x = self.bn(x)
+        x = x.view(org_size)
+        return x
+
+    def _init_new_params(self, *size):
+        out = nn.Parameter(torch.FloatTensor(*size))
+        nn.init.xavier_normal_(out)
+        return out
+
+
+class HtrgGraphAttentionLayer(nn.Module):
+    def __init__(self, in_dim, out_dim, **kwargs):
+        super().__init__()
+
+        self.proj_type1 = nn.Linear(in_dim, in_dim)
+        self.proj_type2 = nn.Linear(in_dim, in_dim)
+
+        self.att_proj = nn.Linear(in_dim, out_dim)
+        self.att_projM = nn.Linear(in_dim, out_dim)
+
+        self.att_weight11 = self._init_new_params(out_dim, 1)
+        self.att_weight22 = self._init_new_params(out_dim, 1)
+        self.att_weight12 = self._init_new_params(out_dim, 1)
+        self.att_weightM = self._init_new_params(out_dim, 1)
+
+        self.proj_with_att = nn.Linear(in_dim, out_dim)
+        self.proj_without_att = nn.Linear(in_dim, out_dim)
+
+        self.proj_with_attM = nn.Linear(in_dim, out_dim)
+        self.proj_without_attM = nn.Linear(in_dim, out_dim)
+
+        self.bn = nn.BatchNorm1d(out_dim)
+        self.input_drop = nn.Dropout(p=0.2)
+        self.act = nn.SELU(inplace=True)
+
+        self.temp = 1.
+        if "temperature" in kwargs:
+            self.temp = kwargs["temperature"]
+
+    def forward(self, x1, x2, master=None):
+        num_type1 = x1.size(1)
+        num_type2 = x2.size(1)
+
+        x1 = self.proj_type1(x1)
+        x2 = self.proj_type2(x2)
+        x = torch.cat([x1, x2], dim=1)
+
+        if master is None:
+            master = torch.mean(x, dim=1, keepdim=True)
+
+        x = self.input_drop(x)
+        att_map = self._derive_att_map(x, num_type1, num_type2)
+        master = self._update_master(x, master)
+        x = self._project(x, att_map)
+        x = self._apply_BN(x)
+        x = self.act(x)
+
+        x1 = x.narrow(1, 0, num_type1)
+        x2 = x.narrow(1, num_type1, num_type2)
+        return x1, x2, master
+
+    def _update_master(self, x, master):
+        att_map = self._derive_att_map_master(x, master)
+        master = self._project_master(x, master, att_map)
+        return master
+
+    def _pairwise_mul_nodes(self, x):
+        nb_nodes = x.size(1)
+        x = x.unsqueeze(2).expand(-1, -1, nb_nodes, -1)
+        x_mirror = x.transpose(1, 2)
+        return x * x_mirror
+
+    def _derive_att_map_master(self, x, master):
+        att_map = x * master
+        att_map = torch.tanh(self.att_projM(att_map))
+        att_map = torch.matmul(att_map, self.att_weightM)
+        att_map = att_map / self.temp
+        att_map = F.softmax(att_map, dim=-2)
+        return att_map
+
+    def _derive_att_map(self, x, num_type1, num_type2):
+        att_map = self._pairwise_mul_nodes(x)
+        att_map = torch.tanh(self.att_proj(att_map))
+
+        att_board = torch.zeros_like(att_map[:, :, :, 0]).unsqueeze(-1)
+        att_board[:, :num_type1, :num_type1, :] = torch.matmul(
+            att_map[:, :num_type1, :num_type1, :], self.att_weight11)
+        att_board[:, num_type1:, num_type1:, :] = torch.matmul(
+            att_map[:, num_type1:, num_type1:, :], self.att_weight22)
+        att_board[:, :num_type1, num_type1:, :] = torch.matmul(
+            att_map[:, :num_type1, num_type1:, :], self.att_weight12)
+        att_board[:, num_type1:, :num_type1, :] = torch.matmul(
+            att_map[:, num_type1:, :num_type1, :], self.att_weight12)
+
+        att_map = att_board
+        att_map = att_map / self.temp
+        att_map = F.softmax(att_map, dim=-2)
+        return att_map
+
+    def _project(self, x, att_map):
+        x1 = self.proj_with_att(torch.matmul(att_map.squeeze(-1), x))
+        x2 = self.proj_without_att(x)
+        return x1 + x2
+
+    def _project_master(self, x, master, att_map):
+        x1 = self.proj_with_attM(torch.matmul(att_map.squeeze(-1).unsqueeze(1), x))
+        x2 = self.proj_without_attM(master)
+        return x1 + x2
+
+    def _apply_BN(self, x):
+        org_size = x.size()
+        x = x.view(-1, org_size[-1])
+        x = self.bn(x)
+        x = x.view(org_size)
+        return x
+
+    def _init_new_params(self, *size):
+        out = nn.Parameter(torch.FloatTensor(*size))
+        nn.init.xavier_normal_(out)
+        return out
+
+
+class GraphPool(nn.Module):
+    def __init__(self, k: float, in_dim: int, p: Union[float, int]):
+        super().__init__()
+        self.k = k
+        self.sigmoid = nn.Sigmoid()
+        self.proj = nn.Linear(in_dim, 1)
+        self.drop = nn.Dropout(p=p) if p > 0 else nn.Identity()
+        self.in_dim = in_dim
+
+    def forward(self, h):
+        Z = self.drop(h)
+        weights = self.proj(Z)
+        scores = self.sigmoid(weights)
+        return self.top_k_graph(scores, h, self.k)
+
+    def top_k_graph(self, scores, h, k):
+        _, n_nodes, n_feat = h.size()
+        n_nodes = max(int(n_nodes * k), 1)
+        _, idx = torch.topk(scores, n_nodes, dim=1)
+        idx = idx.expand(-1, -1, n_feat)
+        h = h * scores
+        h = torch.gather(h, 1, idx)
+        return h
+
+
+class CONV(nn.Module):
+    @staticmethod
+    def to_mel(hz):
+        return 2595 * np.log10(1 + hz / 700)
+
+    @staticmethod
+    def to_hz(mel):
+        return 700 * (10 ** (mel / 2595) - 1)
+
+    def __init__(self, out_channels, kernel_size, sample_rate=16000,
+                 in_channels=1, stride=1, padding=0, dilation=1,
+                 bias=False, groups=1, mask=False):
+        super().__init__()
+        if in_channels != 1:
+            raise ValueError("SincConv only supports in_channels=1")
         self.out_channels = out_channels
         self.kernel_size = kernel_size if kernel_size % 2 != 0 else kernel_size + 1
         self.sample_rate = sample_rate
-        self.min_low_hz = min_low_hz
-        self.min_band_hz = min_band_hz
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.mask = mask
 
-        low_hz = 30.0
-        high_hz = sample_rate / 2.0 - (min_low_hz + min_band_hz)
+        NFFT = 512
+        f = int(self.sample_rate / 2) * np.linspace(0, 1, int(NFFT / 2) + 1)
+        fmel = self.to_mel(f)
+        filbandwidthsmel = np.linspace(np.min(fmel), np.max(fmel), self.out_channels + 1)
+        filbandwidthsf = self.to_hz(filbandwidthsmel)
+        self.mel = filbandwidthsf
 
-        mel = torch.linspace(self.to_mel(low_hz), self.to_mel(high_hz), out_channels + 1)
-        hz = 700.0 * (10.0 ** (mel / 2595.0) - 1.0)
+        hsupp = torch.arange(-(self.kernel_size - 1) / 2, (self.kernel_size - 1) / 2 + 1)
+        band_pass = torch.zeros(self.out_channels, self.kernel_size)
+        for i in range(len(self.mel) - 1):
+            fmin, fmax = self.mel[i], self.mel[i + 1]
+            hHigh = (2 * fmax / self.sample_rate) * np.sinc(2 * fmax * hsupp.numpy() / self.sample_rate)
+            hLow = (2 * fmin / self.sample_rate) * np.sinc(2 * fmin * hsupp.numpy() / self.sample_rate)
+            hideal = hHigh - hLow
+            band_pass[i, :] = Tensor(np.hamming(self.kernel_size)) * Tensor(hideal)
+        self.band_pass = band_pass
 
-        self.low_hz_ = nn.Parameter(hz[:-1].unsqueeze(1))
-        self.band_hz_ = nn.Parameter((hz[1:] - hz[:-1]).unsqueeze(1))
-
-        n = (self.kernel_size - 1) / 2.0
-        self.n_ = torch.arange(-n, 0).float()
-
-        window = torch.hamming_window(self.kernel_size)
-        self.register_buffer("window_", window)
-        self.register_buffer("n_", self.n_)
-
-    def forward(self, waveform: torch.Tensor) -> torch.Tensor:
-        # waveform: (batch, 1, samples)
-        low = self.min_low_hz + torch.abs(self.low_hz_)
-        high = torch.clamp(
-            low + self.min_band_hz + torch.abs(self.band_hz_),
-            self.min_low_hz,
-            self.sample_rate / 2.0,
-        )
-        band = (high - low)[:, 0]
-
-        f_times_t_low = torch.matmul(low, self.n_.unsqueeze(0))
-        f_times_t_high = torch.matmul(high, self.n_.unsqueeze(0))
-
-        band_pass_left = (
-            (torch.sin(f_times_t_high * 2 * math.pi) - torch.sin(f_times_t_low * 2 * math.pi))
-            / (self.n_ / 2.0)
-            * self.window_[: self.kernel_size // 2]
-        )
-        band_pass_center = 2 * band.unsqueeze(1)
-        band_pass_right = torch.flip(band_pass_left, dims=[1])
-
-        filters = torch.cat([band_pass_left, band_pass_center, band_pass_right], dim=1)
-        filters = filters / (2.0 * band.unsqueeze(1))
-        filters = filters.view(self.out_channels, 1, self.kernel_size)
-
-        return F.conv1d(waveform, filters, stride=1, padding=self.kernel_size // 2, bias=None)
-
-
-# ---------------------------------------------------------------------------
-# Residual block
-# ---------------------------------------------------------------------------
+    def forward(self, x, mask=False):
+        band_pass_filter = self.band_pass.clone().to(x.device)
+        if mask:
+            A = int(np.random.uniform(0, 20))
+            A0 = random.randint(0, band_pass_filter.shape[0] - A)
+            band_pass_filter[A0:A0 + A, :] = 0
+        self.filters = band_pass_filter.view(self.out_channels, 1, self.kernel_size)
+        return F.conv1d(x, self.filters, stride=self.stride, padding=self.padding,
+                        dilation=self.dilation, bias=None, groups=1)
 
 
 class Residual_block(nn.Module):
-    def __init__(self, nb_filts: list, first: bool = False):
+    def __init__(self, nb_filts, first=False):
         super().__init__()
         self.first = first
-
-        if not first:
+        if not self.first:
             self.bn1 = nn.BatchNorm2d(num_features=nb_filts[0])
-
-        self.lrelu = nn.LeakyReLU(negative_slope=0.3)
-        self.conv1 = nn.Conv2d(
-            in_channels=nb_filts[0],
-            out_channels=nb_filts[1],
-            kernel_size=(2, 3),
-            padding=(1, 1),
-            stride=1,
-        )
+        self.conv1 = nn.Conv2d(nb_filts[0], nb_filts[1], kernel_size=(2, 3),
+                               padding=(1, 1), stride=1)
+        self.selu = nn.SELU(inplace=True)
         self.bn2 = nn.BatchNorm2d(num_features=nb_filts[1])
-        self.conv2 = nn.Conv2d(
-            in_channels=nb_filts[1],
-            out_channels=nb_filts[1],
-            kernel_size=(2, 3),
-            padding=(0, 1),
-            stride=1,
-        )
-
+        self.conv2 = nn.Conv2d(nb_filts[1], nb_filts[1], kernel_size=(2, 3),
+                               padding=(0, 1), stride=1)
         if nb_filts[0] != nb_filts[1]:
             self.downsample = True
-            self.conv_downsample = nn.Conv2d(
-                in_channels=nb_filts[0],
-                out_channels=nb_filts[1],
-                kernel_size=(1, 1),
-                padding=0,
-                stride=1,
-            )
+            self.conv_downsample = nn.Conv2d(nb_filts[0], nb_filts[1],
+                                             padding=(0, 1), kernel_size=(1, 3), stride=1)
         else:
             self.downsample = False
-
         self.mp = nn.MaxPool2d((1, 3))
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x):
         identity = x
         if not self.first:
             out = self.bn1(x)
-            out = self.lrelu(out)
+            out = self.selu(out)
         else:
             out = x
-
         out = self.conv1(out)
         out = self.bn2(out)
-        out = self.lrelu(out)
+        out = self.selu(out)
         out = self.conv2(out)
-
         if self.downsample:
             identity = self.conv_downsample(identity)
-
-        out = out + identity[:, :, : out.shape[2], : out.shape[3]]
+        out += identity
         out = self.mp(out)
         return out
 
 
-# ---------------------------------------------------------------------------
-# Graph Attention Layer
-# ---------------------------------------------------------------------------
+class Model(nn.Module):
+    """AASIST / AASIST-L. d_args keys: filts, gat_dims, pool_ratios, temperatures, first_conv."""
 
-
-class GraphAttentionLayer(nn.Module):
-    def __init__(self, in_dim: int, out_dim: int, temperature: float):
+    def __init__(self, d_args: dict):
         super().__init__()
-        self.temperature = temperature
-        self.fc = nn.Linear(in_dim, out_dim, bias=False)
-        self.attn = nn.Linear(2 * out_dim, 1, bias=False)
+        filts = d_args["filts"]
+        gat_dims = d_args["gat_dims"]
+        pool_ratios = d_args["pool_ratios"]
+        temperatures = d_args["temperatures"]
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (batch, N, in_dim)
-        h = self.fc(x)  # (B, N, out_dim)
-        B, N, D = h.shape
+        self.conv_time = CONV(out_channels=filts[0], kernel_size=d_args["first_conv"], in_channels=1)
+        self.first_bn = nn.BatchNorm2d(num_features=1)
+        self.drop = nn.Dropout(0.5, inplace=True)
+        self.drop_way = nn.Dropout(0.2, inplace=True)
+        self.selu = nn.SELU(inplace=True)
 
-        a_input = torch.cat(
-            [h.unsqueeze(2).expand(-1, -1, N, -1), h.unsqueeze(1).expand(-1, N, -1, -1)], dim=-1
-        )
-        e = self.attn(a_input).squeeze(-1)  # (B, N, N)
-        attn = F.softmax(e / self.temperature, dim=-1)
-        return torch.bmm(attn, h)  # (B, N, out_dim)
-
-
-# ---------------------------------------------------------------------------
-# Heterogeneous Temporal–Spectral Graph Attention Layer
-# ---------------------------------------------------------------------------
-
-
-class HtrgGraphAttentionLayer(nn.Module):
-    def __init__(self, in_dim: int, out_dim: int, temperature: float):
-        super().__init__()
-        self.temperature = temperature
-        self.fc_s = nn.Linear(in_dim, out_dim, bias=False)  # spectral
-        self.fc_t = nn.Linear(in_dim, out_dim, bias=False)  # temporal
-        self.attn_st = nn.Linear(2 * out_dim, 1, bias=False)
-        self.attn_ts = nn.Linear(2 * out_dim, 1, bias=False)
-
-    def forward(self, x_s: torch.Tensor, x_t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        # x_s / x_t: (B, Ns/Nt, in_dim)
-        h_s = self.fc_s(x_s)  # (B, Ns, out_dim)
-        h_t = self.fc_t(x_t)  # (B, Nt, out_dim)
-        Ns = h_s.size(1)
-        Nt = h_t.size(1)
-
-        # spectral → temporal cross attention
-        a_st = torch.cat(
-            [h_s.unsqueeze(2).expand(-1, -1, Nt, -1), h_t.unsqueeze(1).expand(-1, Ns, -1, -1)],
-            dim=-1,
-        )
-        e_st = self.attn_st(a_st).squeeze(-1)  # (B, Ns, Nt)
-        alpha_st = F.softmax(e_st / self.temperature, dim=-1)
-        out_s = torch.bmm(alpha_st, h_t)  # (B, Ns, out_dim)
-
-        # temporal → spectral cross attention
-        a_ts = torch.cat(
-            [h_t.unsqueeze(2).expand(-1, -1, Ns, -1), h_s.unsqueeze(1).expand(-1, Nt, -1, -1)],
-            dim=-1,
-        )
-        e_ts = self.attn_ts(a_ts).squeeze(-1)  # (B, Nt, Ns)
-        alpha_ts = F.softmax(e_ts / self.temperature, dim=-1)
-        out_t = torch.bmm(alpha_ts, h_s)  # (B, Nt, out_dim)
-
-        return out_s, out_t
-
-
-# ---------------------------------------------------------------------------
-# Graph Pool
-# ---------------------------------------------------------------------------
-
-
-class GraphPool(nn.Module):
-    def __init__(self, k: float, in_dim: int):
-        super().__init__()
-        self.k = k
-        self.proj = nn.Linear(in_dim, 1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, N, D)
-        scores = self.proj(x).squeeze(-1)  # (B, N)
-        N = x.size(1)
-        k = max(1, int(self.k * N))
-        _, idx = scores.topk(k, dim=-1)
-        idx = idx.sort(dim=-1)[0]
-        return torch.gather(x, 1, idx.unsqueeze(-1).expand(-1, -1, x.size(-1)))
-
-
-# ---------------------------------------------------------------------------
-# AASIST-L
-# ---------------------------------------------------------------------------
-
-
-class AASIST(nn.Module):
-    """
-    AASIST-L: Anti-Spoofing using Integrated Spectro-Temporal Graph Attention.
-    Lite configuration matching clovaai/aasist AASIST-L pretrained weights.
-    """
-
-    def __init__(
-        self,
-        nb_samp: int = 64600,
-        first_conv: int = 128,
-        filts: list | None = None,
-        gat_dims: list | None = None,
-        pool_ratios: list | None = None,
-        temperatures: list | None = None,
-    ):
-        super().__init__()
-
-        if filts is None:
-            filts = [24, [1, 32], [32, 32], [32, 32], [32, 32]]
-        if gat_dims is None:
-            gat_dims = [64, 32]
-        if pool_ratios is None:
-            pool_ratios = [0.5, 0.5, 0.5, 0.5]
-        if temperatures is None:
-            temperatures = [2.0, 2.0, 100.0, 100.0]
-
-        self.sinc_conv = SincConv(
-            out_channels=first_conv,
-            kernel_size=1024,
-            sample_rate=16000,
+        self.encoder = nn.Sequential(
+            nn.Sequential(Residual_block(nb_filts=filts[1], first=True)),
+            nn.Sequential(Residual_block(nb_filts=filts[2])),
+            nn.Sequential(Residual_block(nb_filts=filts[3])),
+            nn.Sequential(Residual_block(nb_filts=filts[4])),
+            nn.Sequential(Residual_block(nb_filts=filts[4])),
+            nn.Sequential(Residual_block(nb_filts=filts[4])),
         )
 
-        in_ch = first_conv
-        self.res_blocks = nn.ModuleList()
-        for i, filt in enumerate(filts[1:]):
-            self.res_blocks.append(
-                Residual_block(
-                    nb_filts=[in_ch if i == 0 else filts[i][1], filt[0] if i == 0 else filts[i][1]],
-                    first=(i == 0),
-                )
-            )
+        self.pos_S = nn.Parameter(torch.randn(1, 23, filts[-1][-1]))
+        self.master1 = nn.Parameter(torch.randn(1, 1, gat_dims[0]))
+        self.master2 = nn.Parameter(torch.randn(1, 1, gat_dims[0]))
 
-        # Rebuild properly using the filts spec
-        self.res_blocks = nn.ModuleList()
-        # filts[0] is the number of sinc filter channels (first_conv already = 128)
-        # filts[1..] are [in, out] pairs for residual blocks
-        self.res_blocks.append(Residual_block(nb_filts=[first_conv, filts[1][1]], first=True))
-        for i in range(2, len(filts)):
-            self.res_blocks.append(Residual_block(nb_filts=filts[i], first=False))
+        self.GAT_layer_S = GraphAttentionLayer(filts[-1][-1], gat_dims[0], temperature=temperatures[0])
+        self.GAT_layer_T = GraphAttentionLayer(filts[-1][-1], gat_dims[0], temperature=temperatures[1])
 
-        self.bn_after_sinc = nn.BatchNorm2d(first_conv)
-        self.lrelu = nn.LeakyReLU(negative_slope=0.3)
+        self.HtrgGAT_layer_ST11 = HtrgGraphAttentionLayer(gat_dims[0], gat_dims[1], temperature=temperatures[2])
+        self.HtrgGAT_layer_ST12 = HtrgGraphAttentionLayer(gat_dims[1], gat_dims[1], temperature=temperatures[2])
+        self.HtrgGAT_layer_ST21 = HtrgGraphAttentionLayer(gat_dims[0], gat_dims[1], temperature=temperatures[2])
+        self.HtrgGAT_layer_ST22 = HtrgGraphAttentionLayer(gat_dims[1], gat_dims[1], temperature=temperatures[2])
 
-        last_ch = filts[-1][1]
+        self.pool_S = GraphPool(pool_ratios[0], gat_dims[0], 0.3)
+        self.pool_T = GraphPool(pool_ratios[1], gat_dims[0], 0.3)
+        self.pool_hS1 = GraphPool(pool_ratios[2], gat_dims[1], 0.3)
+        self.pool_hT1 = GraphPool(pool_ratios[2], gat_dims[1], 0.3)
+        self.pool_hS2 = GraphPool(pool_ratios[2], gat_dims[1], 0.3)
+        self.pool_hT2 = GraphPool(pool_ratios[2], gat_dims[1], 0.3)
 
-        # Spectral and temporal graph attention
-        self.gat_s = GraphAttentionLayer(last_ch, gat_dims[0], temperatures[0])
-        self.gat_t = GraphAttentionLayer(last_ch, gat_dims[0], temperatures[1])
-        self.pool_s = GraphPool(pool_ratios[0], gat_dims[0])
-        self.pool_t = GraphPool(pool_ratios[1], gat_dims[0])
+        self.out_layer = nn.Linear(5 * gat_dims[1], 2)
 
-        # Heterogeneous cross-graph attention
-        self.hgat = HtrgGraphAttentionLayer(gat_dims[0], gat_dims[1], temperatures[2])
-        self.pool_hs = GraphPool(pool_ratios[2], gat_dims[1])
-        self.pool_ht = GraphPool(pool_ratios[3], gat_dims[1])
+    def forward(self, x, Freq_aug=False):
+        x = x.unsqueeze(1)
+        x = self.conv_time(x, mask=Freq_aug)
+        x = x.unsqueeze(dim=1)
+        x = F.max_pool2d(torch.abs(x), (3, 3))
+        x = self.first_bn(x)
+        x = self.selu(x)
 
-        # Classifier: max + avg readout → fc
-        self.fc = nn.Linear(gat_dims[1] * 4, 2)
-        self.drop = nn.Dropout(0.1)
+        e = self.encoder(x)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, nb_samp)
-        x = x.unsqueeze(1)  # (B, 1, T)
-        x = torch.abs(self.sinc_conv(x))  # (B, first_conv, T)
-        x = x.unsqueeze(2)  # (B, first_conv, 1, T)
-        x = self.bn_after_sinc(x)
-        x = self.lrelu(x)
+        e_S, _ = torch.max(torch.abs(e), dim=3)
+        e_S = e_S.transpose(1, 2) + self.pos_S
+        gat_S = self.GAT_layer_S(e_S)
+        out_S = self.pool_S(gat_S)
 
-        for block in self.res_blocks:
-            x = block(x)
+        e_T, _ = torch.max(torch.abs(e), dim=2)
+        e_T = e_T.transpose(1, 2)
+        gat_T = self.GAT_layer_T(e_T)
+        out_T = self.pool_T(gat_T)
 
-        # Reshape to (B, T', F', C') for graph processing
-        # x: (B, C, H, W) after res blocks
-        B, C, H, W = x.shape
+        master1 = self.master1.expand(x.size(0), -1, -1)
+        master2 = self.master2.expand(x.size(0), -1, -1)
 
-        # Spectral nodes: average over time dim
-        x_s = x.mean(dim=3)  # (B, C, H)
-        x_s = x_s.permute(0, 2, 1)  # (B, H, C) = (B, N_freq, C)
+        out_T1, out_S1, master1 = self.HtrgGAT_layer_ST11(out_T, out_S, master=self.master1)
+        out_S1 = self.pool_hS1(out_S1)
+        out_T1 = self.pool_hT1(out_T1)
+        out_T_aug, out_S_aug, master_aug = self.HtrgGAT_layer_ST12(out_T1, out_S1, master=master1)
+        out_T1 = out_T1 + out_T_aug
+        out_S1 = out_S1 + out_S_aug
+        master1 = master1 + master_aug
 
-        # Temporal nodes: average over freq dim
-        x_t = x.mean(dim=2)  # (B, C, W)
-        x_t = x_t.permute(0, 2, 1)  # (B, W, C) = (B, N_time, C)
+        out_T2, out_S2, master2 = self.HtrgGAT_layer_ST21(out_T, out_S, master=self.master2)
+        out_S2 = self.pool_hS2(out_S2)
+        out_T2 = self.pool_hT2(out_T2)
+        out_T_aug, out_S_aug, master_aug = self.HtrgGAT_layer_ST22(out_T2, out_S2, master=master2)
+        out_T2 = out_T2 + out_T_aug
+        out_S2 = out_S2 + out_S_aug
+        master2 = master2 + master_aug
 
-        # Spectral GAT
-        x_s = self.gat_s(x_s)
-        x_s = self.pool_s(x_s)
+        out_T1 = self.drop_way(out_T1)
+        out_T2 = self.drop_way(out_T2)
+        out_S1 = self.drop_way(out_S1)
+        out_S2 = self.drop_way(out_S2)
+        master1 = self.drop_way(master1)
+        master2 = self.drop_way(master2)
 
-        # Temporal GAT
-        x_t = self.gat_t(x_t)
-        x_t = self.pool_t(x_t)
+        out_T = torch.max(out_T1, out_T2)
+        out_S = torch.max(out_S1, out_S2)
+        master = torch.max(master1, master2)
 
-        # Heterogeneous cross-graph attention
-        x_s, x_t = self.hgat(x_s, x_t)
-        x_s = self.pool_hs(x_s)
-        x_t = self.pool_ht(x_t)
+        T_max, _ = torch.max(torch.abs(out_T), dim=1)
+        T_avg = torch.mean(out_T, dim=1)
+        S_max, _ = torch.max(torch.abs(out_S), dim=1)
+        S_avg = torch.mean(out_S, dim=1)
 
-        # Readout: max + avg for each branch
-        x_s_max = x_s.max(dim=1)[0]
-        x_s_avg = x_s.mean(dim=1)
-        x_t_max = x_t.max(dim=1)[0]
-        x_t_avg = x_t.mean(dim=1)
+        last_hidden = torch.cat([T_max, T_avg, S_max, S_avg, master.squeeze(1)], dim=1)
+        last_hidden = self.drop(last_hidden)
+        output = self.out_layer(last_hidden)
+        return last_hidden, output
 
-        out = torch.cat([x_s_max, x_s_avg, x_t_max, x_t_avg], dim=-1)
-        out = self.drop(out)
-        return self.fc(out)  # (B, 2)
+
+# Alias used by the rest of the codebase
+AASIST = Model

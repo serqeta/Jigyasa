@@ -14,11 +14,11 @@ def estimate_snr_perc(audio_1s):
     )
     energy = np.sum(frames ** 2, axis=1) / frame_length
     energy_db = 10 * np.log10(energy + eps)
-    
+
     max_db = np.max(energy_db)
     if max_db < 10 * np.log10(eps * 100):
         return 0.0
-        
+
     speech_db = np.percentile(energy_db, 95)
     noise_db = np.percentile(energy_db, 10)
     return max(0.0, float(speech_db - noise_db))

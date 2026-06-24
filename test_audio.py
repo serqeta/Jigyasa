@@ -1,6 +1,7 @@
 import librosa
-from voiceshield.features.snr import estimate_snr
+
 from voiceshield import config
+from voiceshield.features.snr import estimate_snr
 
 audio, sr = librosa.load("/home/beast/Downloads/sample.mp3", sr=config.SAMPLE_RATE)
 print(f"Audio length: {len(audio)/sr:.2f}s")
