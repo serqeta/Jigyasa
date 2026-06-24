@@ -1,12 +1,15 @@
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "voiceshield"
 version = "1.0.0"
 description = "VoiceShield Stage 1 — Real-time AI Voice Fraud Detection"
 requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+include = ["voiceshield*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
