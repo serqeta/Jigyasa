@@ -95,8 +95,17 @@ def reverb_score(audio: np.ndarray) -> float:
 
 def freq_response_score(audio: np.ndarray) -> float:
     """
-    Loudspeaker playback attenuates the lows (<150 Hz) and highs (>5 kHz)
-    relative to the 300 Hz–3 kHz band that small drivers reproduce well.
+    Loudspeaker-channel composite, calibrated 2026-07-20 on simulated
+    speaker→air→mic channels vs 20 genuine LibriSpeech clips:
+
+        feature        genuine μ±σ    medium/telephone channel μ±σ
+        low deficit     -4.4 ± 10.8         ~26 ± 6
+        high deficit    16.4 ±  8.1         ~32 ± 3
+        spectral tilt   13.5 ±  6.9         ~27 ± 4
+
+    Separates medium/telephone-grade playback cleanly; MILD channels and
+    codec round-trips are NOT separable by LTAS features (documented
+    limitation — this detector claims "obvious loudspeaker playback" only).
     """
     env = _frame_energies_db(audio)
     if _is_silent(env):
@@ -106,11 +115,12 @@ def freq_response_score(audio: np.ndarray) -> float:
     mid = _band_db(ltas, freqs, 300, 3000)
     low_deficit = mid - _band_db(ltas, freqs, 50, 150)
     high_deficit = mid - _band_db(ltas, freqs, 5000, 7500)
+    tilt = _band_db(ltas, freqs, 1000, 2000) - _band_db(ltas, freqs, 4000, 7000)
 
-    # Natural close-mic speech: low deficit ~<15 dB, high deficit ~<30 dB.
-    low_s = np.clip((low_deficit - 15.0) / 20.0, 0.0, 1.0)
-    high_s = np.clip((high_deficit - 30.0) / 20.0, 0.0, 1.0)
-    return float(0.5 * low_s + 0.5 * high_s)
+    low_s = np.clip((low_deficit - 5.0) / 20.0, 0.0, 1.0)
+    high_s = np.clip((high_deficit - 20.0) / 12.0, 0.0, 1.0)
+    tilt_s = np.clip((tilt - 18.0) / 10.0, 0.0, 1.0)
+    return float((low_s + high_s + tilt_s) / 3.0)
 
 
 def double_compression_score(audio: np.ndarray) -> float:

@@ -116,6 +116,34 @@ def _run_ensemble_analysis(tmp_path: str) -> dict:
     }
 
 
+@router.post("/debug/capture")
+async def debug_capture(request: Request, label: str = "sample") -> JSONResponse:
+    """
+    Calibration helper: dump the current rolling buffer (last 10 s of the
+    live capture path) to eval_recordings/ as a labeled WAV. Explicitly
+    user-triggered; the folder is git-ignored. Used to collect matched
+    live-vs-replayed samples for replay-detector calibration.
+    """
+    import re
+    from datetime import datetime, timezone
+
+    import soundfile as sf
+
+    runner = request.app.state.runner
+    if runner is None:
+        raise HTTPException(status_code=503, detail="No active runner")
+    audio = runner.buffer.latest_seconds(config.BUFFER_SECONDS)
+    if len(audio) < config.SAMPLE_RATE:
+        raise HTTPException(status_code=409, detail="Buffer nearly empty — speak/play first")
+
+    safe = re.sub(r"[^A-Za-z0-9_-]", "_", label)[:60]
+    os.makedirs("eval_recordings", exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%H%M%S")
+    path = os.path.join("eval_recordings", f"{safe}_{stamp}.wav")
+    sf.write(path, audio, config.SAMPLE_RATE)
+    return JSONResponse({"saved": path, "seconds": round(len(audio) / config.SAMPLE_RATE, 1)})
+
+
 @router.post("/evidence/export")
 async def evidence_export(request: Request) -> JSONResponse:
     """

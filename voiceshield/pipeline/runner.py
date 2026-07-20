@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from typing import Callable
 
 import numpy as np
@@ -104,6 +105,7 @@ class PipelineRunner:
         self._stage2_active = False
         self._cascade_clean = 0
         self._chunks_since_probe = 0
+        self._score_history: deque[float] = deque(maxlen=config.SCORE_SMOOTHING_CHUNKS)
         self._buffer = RollingBuffer()
         self._source = source
         self._state_engine = StateEngine()
@@ -126,18 +128,18 @@ class PipelineRunner:
     def state_engine(self) -> StateEngine:
         return self._state_engine
 
-    def _should_run_deep(self, stage1_score: float) -> bool:
-        """Cascade gate: deep-scan when engaged, when Stage 1 flags
-        suspicion, or on the periodic probe that guards against Stage 1
-        under-scoring a clone."""
-        if self._stage2_active or stage1_score >= config.CASCADE_TRIGGER:
+    def _should_run_deep(self, screen_score: float) -> tuple[bool, bool]:
+        """Cascade gate → (deep, is_probe): deep-scan when engaged, when the
+        screener flags suspicion, or on the periodic probe that guards
+        against a screener miss."""
+        if self._stage2_active or screen_score >= config.CASCADE_TRIGGER:
             self._chunks_since_probe = 0
-            return True
+            return True, False
         self._chunks_since_probe += 1
         if self._chunks_since_probe >= config.CASCADE_PROBE_EVERY:
             self._chunks_since_probe = 0
-            return True
-        return False
+            return True, True
+        return False, False
 
     def _update_cascade(self, fused: float) -> None:
         """Engage on suspicious fused score; disengage after sustained clean."""
@@ -184,6 +186,7 @@ class PipelineRunner:
         if not speech_active:
             score = 0.0
             artifact = None
+            self._score_history.clear()  # silence breaks the smoothing window
         else:
             # Extract features once; rule-based scorers reuse them, neural
             # scorers consume raw audio.
@@ -194,15 +197,35 @@ class PipelineRunner:
                     return scorer.score_from_features(features)
                 return scorer.score(audio_win)
 
-            # Screen with stage1 when present; an ensemble without a
-            # screener always deep-scans (screen score 1.0 ≥ any trigger).
-            screener = self._ensemble.get("stage1")
+            # Screen with the configured screener (falling back to the
+            # legacy "stage1" slot); an ensemble without a screener always
+            # deep-scans (screen score 1.0 ≥ any trigger).
+            screen_name = (
+                config.CASCADE_SCREENER
+                if config.CASCADE_SCREENER in self._ensemble
+                else "stage1"
+            )
+            screener = self._ensemble.get(screen_name)
             if screener is not None:
-                component_scores["stage1"] = _component(screener)
-            screen_score = component_scores.get("stage1", 1.0)
+                component_scores[screen_name] = _component(screener)
+            screen_score = component_scores.get(screen_name, 1.0)
 
-            run_deep = not self._cascade or self._should_run_deep(screen_score)
-            if run_deep:
+            if self._cascade:
+                run_deep, is_probe = self._should_run_deep(screen_score)
+            else:
+                run_deep, is_probe = True, False
+
+            # Confidence gate (low side): a confidently-clean screener on a
+            # non-probe chunk makes the diversity models redundant. Probes
+            # and suspicious chunks always run the full ensemble, so
+            # instant-RED keeps requiring multi-model consensus.
+            gated = (
+                self._cascade
+                and not is_probe
+                and not self._stage2_active
+                and screen_score < config.CONFIDENCE_GATE_LOW
+            )
+            if run_deep and not gated:
                 for name, scorer in self._ensemble.items():
                     if name not in component_scores:
                         component_scores[name] = _component(scorer)
@@ -212,12 +235,21 @@ class PipelineRunner:
                     replay_result = detect_replay(audio_win)
                     component_scores["replay"] = replay_result.score
 
-            score = fuse_scores(component_scores)
+            raw_score = fuse_scores(component_scores)
             # Weak-evidence scaling: mostly-silent windows (speech onsets)
             # make the SSL models spike; evidence grows with voiced content.
-            score *= min(1.0, voiced_ratio / config.EVIDENCE_FULL_VOICED_RATIO)
+            raw_score *= min(1.0, voiced_ratio / config.EVIDENCE_FULL_VOICED_RATIO)
+
+            # Temporal smoothing: median over the recent speech chunks kills
+            # single-chunk transients (both false blips and evidence noise).
+            self._score_history.append(raw_score)
+            score = float(np.median(self._score_history))
+
+            # Cascade engagement reacts to RAW evidence (a single hot probe
+            # must engage stage 2 so the next chunks can confirm it); only
+            # the user-facing state is smoothed.
             if self._cascade and run_deep:
-                self._update_cascade(score)
+                self._update_cascade(raw_score)
             artifact = top_artifact_name(features)
 
         # State engine sees GREY whenever there is no fresh speech, whatever
@@ -290,3 +322,4 @@ class PipelineRunner:
         self._stage2_active = False
         self._cascade_clean = 0
         self._chunks_since_probe = 0
+        self._score_history.clear()

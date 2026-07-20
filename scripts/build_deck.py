@@ -283,10 +283,10 @@ footer(s, 4)
 s = slide()
 header(s, "The ensemble", "Diversity beats any single detector")
 rows = [
-    ("AASIST-L", "raw waveform GNN", "spectro-temporal graph artifacts", "ASVspoof 2019 LA"),
-    ("XLS-R 300M", "self-supervised speech model", "vocoder fingerprints in embeddings", "deepfake fine-tune · EER 4%"),
-    ("WavLM-base", "self-supervised, In-the-Wild", "modern commercial TTS (ElevenLabs-class)", "real-world deepfakes"),
-    ("Phase / Pitch", "DSP rules — fully explainable", "phase resets · unnaturally smooth F0", "no training data needed"),
+    ("MMS-300M (NII)", "multilingual SSL, 74k h + RawBoost", "all families: GAN vocoders, TTS, VC, wild fakes", "benchmark AUC 0.997"),
+    ("XLS-R 300M", "self-supervised speech model", "vocoder fingerprints in embeddings", "benchmark AUC 0.73"),
+    ("WavLM-base", "self-supervised, In-the-Wild", "modern commercial TTS (ElevenLabs-class)", "benchmark AUC 0.87"),
+    ("Phase / Pitch", "DSP rules — fully explainable", "artifact naming for the agent, zero fusion weight", "explainability layer"),
 ]
 y = Inches(2.0)
 col_x = [MARGIN, MARGIN + Inches(2.2), MARGIN + Inches(5.2), MARGIN + Inches(9.3)]
@@ -304,13 +304,13 @@ for i, (m, what, catches, trained) in enumerate(rows):
     text(s, col_x[3], y, Inches(2.6), Inches(0.5), trained, size=12, color=GREY)
     y += Inches(0.64)
 text(s, MARGIN, Inches(5.15), SLIDE_W - 2 * MARGIN, Inches(1.2),
-     "Proof it matters: a real ElevenLabs clone slipped past our ASVspoof-trained detector (0.19) — and was caught "
-     "at 0.999 confidence by the In-the-Wild-trained member. Every model has blind spots; the fusion is calibrated "
-     "so one model's blind spot is another's bullseye.",
+     "Selected by measurement, not marketing: we benchmarked 8 candidate detectors on 496 clips spanning 7 GAN "
+     "vocoders (WaveFake), 100+ TTS/VC systems (ASVspoof 2021), wild internet deepfakes, and our own generated "
+     "clones. Fusion weights and alert thresholds come from those measured score distributions.",
      size=15, line_spacing=1.15)
 text(s, MARGIN, Inches(6.25), SLIDE_W - 2 * MARGIN, Inches(0.6),
-     "Every component earns its fusion weight through validation — detectors that haven't proven themselves on "
-     "real audio (e.g. our replay module, see roadmap) contribute zero until they do.",
+     "Every component earns its fusion weight through validation. The same benchmark retired our original Stage 1 "
+     "screener (AASIST-L: AUC 0.33 on real audio) and keeps the replay module at zero weight until calibrated.",
      size=12, color=GREY, line_spacing=1.1)
 footer(s, 5)
 
@@ -341,22 +341,25 @@ footer(s, 6)
 s = slide()
 header(s, "Measured, not promised", "Validation results on real audio")
 rows = [
-    ("Genuine speech (LibriSpeech, male + female)", "0 false alerts across every chunk", S_GREEN),
-    ("Voice clone — SpeechT5, x-vector cloned speaker", "RED in 1.5 s", S_RED),
-    ("Voice clone — ElevenLabs (WhatsApp-compressed)", "AMBER 3.0 s → RED 5.0 s", S_RED),
+    ("Detection — 323 fakes: 7 GAN vocoders, 100+ TTS/VC systems, wild deepfakes, ElevenLabs",
+     "99% RED ≤ 10 s (≥4 s clips)", S_RED),
+    ("Time to alert (median across detected fakes)", "AMBER 1.5 s · RED 2.0 s", S_RED),
+    ("Hindi — FLEURS genuine vs MMS-TTS fakes (multilingual)", "AUC 1.0 · 100% flagged ≤5 s", S_RED),
+    ("Genuine speech — 173 clips incl. codec + noisy wild domains", "3.5% false-RED · demo set: zero", S_GREEN),
     ("Silence / degraded audio", "GREY — never a false risk claim", S_GREY),
-    ("Latency, full ensemble on laptop GPU (RTX 4050)", "p95 166 ms  ·  budget 200 ms", INK),
+    ("Latency per 500 ms chunk (60 W laptop GPU)", "p50 83–113 ms · p95 207 ms", INK),
 ]
-y = Inches(2.1)
+y = Inches(2.0)
 for t, v, c in rows:
-    rect(s, MARGIN, y, Inches(7.4), Inches(0.72), fill=FAINT, radius=True)
-    text(s, MARGIN + Inches(0.25), y + Inches(0.16), Inches(7.0), Inches(0.45), t, size=14)
-    text(s, MARGIN + Inches(7.7), y + Inches(0.14), Inches(4.2), Inches(0.45), v, size=15, bold=True, color=c)
-    y += Inches(0.85)
-text(s, MARGIN, Inches(6.5), SLIDE_W - 2 * MARGIN, Inches(0.6),
-     "Alert budget from the problem statement: flag within the first 10 seconds — we alert at 1.5–5 s. "
-     "94 automated tests gate every change, including these acceptance thresholds.",
-     size=13, color=GREY)
+    rect(s, MARGIN, y, Inches(7.4), Inches(0.66), fill=FAINT, radius=True)
+    text(s, MARGIN + Inches(0.25), y + Inches(0.13), Inches(7.0), Inches(0.45), t, size=13)
+    text(s, MARGIN + Inches(7.7), y + Inches(0.12), Inches(4.2), Inches(0.45), v, size=15, bold=True, color=c)
+    y += Inches(0.76)
+text(s, MARGIN, Inches(6.6), SLIDE_W - 2 * MARGIN, Inches(0.6),
+     "Problem statement asks: flag High Risk within the first 10 seconds — median RED is at 1.5 s. "
+     "Measured on a 496-clip benchmark (WaveFake, ASVspoof 2021 DF, In-the-Wild + generated clones); "
+     "94 automated tests gate every change.",
+     size=12, color=GREY)
 footer(s, 7)
 
 # ================================================================ 8 moat

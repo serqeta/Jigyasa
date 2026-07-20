@@ -44,6 +44,14 @@ def get_device() -> str:
 ENABLE_PHASE_PITCH_SCORER = True
 ENABLE_REPLAY_DETECTION = True
 
+# Primary detector (2026-07-20 evaluation, 496-clip multi-source benchmark:
+# WaveFake GAN vocoders + ASVspoof2021-DF + In-the-Wild + generated clones):
+# NII MMS-300M anti-deepfake — AUC 0.997, FPR@0.5 0.05, FNR@0.5 0.02.
+# Weights converted from fairseq by scripts/convert_nii.py and validated
+# against the reference implementation. License: CC BY-NC-SA 4.0 (research/
+# hackathon use — see NOTICE.md before any commercial deployment).
+ENABLE_NII_SCORER = True
+
 # Pretrained anti-spoofing ensemble members (Hugging Face Hub, all 16 kHz
 # mono, AutoModelForAudioClassification). spoof_label is the logit index
 # whose softmax probability means "synthetic/spoofed" — polarity differs
@@ -81,34 +89,50 @@ HF_CACHE_DIR = "models/hf"
 # SpeechT5 TTS + voice clone): ssl and wavlm are the validated
 # discriminators; AASIST-L false-positives on clean mic audio across every
 # genuine domain tried, so it keeps only a small vote.
+# Calibrated from the 2026-07-20 model evaluation (per-source AUCs in
+# tasks/progress.md). Zero-weighted components are computed and displayed
+# but do not influence the verdict:
+#  - stage1 (AASIST-L): retired — AUC 0.33 on the benchmark, i.e. worse
+#    than random on real audio; kept loadable for /v1 compatibility only.
+#  - phase_pitch: AUC 0.49 — explainability display, not evidence.
+#  - spec (AST): saturates at p(spoof)=1.0 on any input.
+#  - replay: awaiting real loudspeaker/call recordings for calibration.
 FUSION_WEIGHTS = {
-    "stage1": 0.10,
-    "ssl": 0.40,
-    "spec": 0.15,
-    "wavlm": 0.25,
-    "phase_pitch": 0.10,
-    # Quarantined 2026-07-08: validation on real audio showed the replay
-    # detectors produce no discriminative signal yet (background detector
-    # saturates on genuine speech; band-limit/codec thresholds never fire
-    # on realistic channels). Still computed and displayed as experimental;
-    # weight stays 0 until calibrated on real loudspeaker/call recordings.
+    "nii": 0.50,
+    "ssl": 0.15,
+    "wavlm": 0.15,
+    "stage1": 0.0,
+    "spec": 0.0,
+    "phase_pitch": 0.0,
     "replay": 0.0,
 }
 
-# Peak-evidence rule: a weighted mean dilutes a single confident detector
-# (a clone scoring 0.91 on ssl must not average down to AMBER). The fused
-# score is floored at factor × that component's score, per component.
-# Factors encode measured trust (2026-07-08 validation):
-#  - ssl 0.8: clean on genuine across domains; its confident hit can
-#    carry a chunk to RED-range on its own.
-#  - wavlm 0.75: the only member that catches ElevenLabs-class TTS
-#    (0.999 digital) — 0.75 lets a sustained confident hit reach RED via
-#    hysteresis (2 consecutive ≥ 0.70). CAUTION: wavlm false-fires on
-#    ~10% of genuine LibriSpeech speakers; this demo calibration accepts
-#    that risk because the demo speakers are validated wavlm-clean. For
-#    production, drop to 0.6 (solo ceiling AMBER) or gate RED on
-#    two-model consensus.
-PEAK_COMPONENTS = {"ssl": 0.8, "wavlm": 0.75}
+# Peak-evidence rule: a weighted mean dilutes a single confident detector.
+# The fused score is floored at factor × that component's score. Factors
+# set from measured genuine-score quantiles (2026-07-20 benchmark):
+#  - nii 0.8:   genuine p99 0.81 → floor 0.65 (< RED); fake median 0.997
+#               → floor 0.80 (RED via hysteresis). Never instant-RED solo.
+#  - ssl 0.8:   genuine p99 0.85 → floor 0.68 (< RED).
+#  - wavlm 0.6: genuine p99 hits 0.999 (≈1% of real speakers) → solo
+#               ceiling stays AMBER.
+PEAK_COMPONENTS = {"nii": 0.8, "ssl": 0.8, "wavlm": 0.6}
+
+# Cascade screener component (Stage 1 slot). NII replaced AASIST-L after
+# the benchmark; runner falls back to "stage1" for custom ensembles.
+CASCADE_SCREENER = "nii"
+
+# Temporal smoothing: the fused score fed to the state engine is the
+# median of the last N speech chunks (history clears on silence). Kills
+# single-chunk transient blips (26% of genuine clips showed one) at the
+# cost of ≤ one chunk of detection delay.
+SCORE_SMOOTHING_CHUNKS = 3
+
+# Confidence gate (low side only): when the screener is confidently clean
+# (< this) on a non-probe chunk, the diversity models are skipped — the
+# dominant genuine-traffic case, where they cannot change the verdict.
+# High screener scores always run the full ensemble so that instant-RED
+# (fused ≥ 0.85) continues to require multi-model consensus.
+CONFIDENCE_GATE_LOW = 0.15
 
 # Evidence scaling: a scoring window that is mostly silence carries weak
 # evidence — a fresh speech onset fills only a fraction of the 4 s window

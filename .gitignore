@@ -39,6 +39,9 @@ models/hf/
 # Evidence packages (audit exports — never committed)
 evidence/
 
+# Calibration recordings (raw audio — never committed)
+eval_recordings/
+
 # Audio fixtures (large binaries — generate/obtain separately)
 tests/fixtures/*.wav
 tests/fixtures/*.mp3

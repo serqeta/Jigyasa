@@ -127,8 +127,11 @@ def fuse_scores(component_scores: dict[str, float]) -> float:
     weights = {k: configured.get(k, default_w) for k in component_scores}
     total = sum(weights.values())
     if total <= 0.0:
-        return 0.0
-    fused = sum(weights[k] * component_scores[k] for k in component_scores) / total
+        # every present component is zero-weighted — the Stage 1
+        # single-scorer compatibility path: plain mean keeps score=score
+        fused = sum(component_scores.values()) / len(component_scores)
+    else:
+        fused = sum(weights[k] * component_scores[k] for k in component_scores) / total
 
     peak = max(
         (factor * component_scores[k] for k, factor in config.PEAK_COMPONENTS.items()

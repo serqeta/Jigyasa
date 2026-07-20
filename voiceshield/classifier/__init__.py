@@ -43,10 +43,12 @@ def get_scorers() -> dict[str, Scorer]:
     """
     Stage 2 factory: name → scorer for every available ensemble component.
 
-    Always contains "stage1" (AASIST or fallback). Pretrained HF components
+    "nii" (primary, benchmark AUC 0.997) plus the pretrained HF components
     and the rule-based phase/pitch scorer join when enabled and loadable;
     a component that fails to load is logged and excluded — fusion weights
-    renormalize over whatever this returns.
+    renormalize over whatever this returns. AASIST ("stage1") was retired
+    from the ensemble by the 2026-07-20 evaluation (AUC 0.33, worse than
+    random on real audio); get_scorer() keeps it for /v1 compatibility.
 
     Process-wide singleton: the models are GPU-resident, and loading a
     second copy (live runner + /v2/analyze both calling this) exhausts
@@ -60,7 +62,16 @@ def get_scorers() -> dict[str, Scorer]:
         from voiceshield.logger import get_logger
 
         log = get_logger("voiceshield.classifier")
-        scorers: dict[str, Scorer] = {"stage1": get_scorer()}
+        scorers: dict[str, Scorer] = {}
+
+        if config.ENABLE_NII_SCORER:
+            try:
+                from voiceshield.classifier.nii_scorer import NIIScorer
+
+                scorers["nii"] = NIIScorer()
+                log.info("Ensemble scorer 'nii' loaded (MMS-300M anti-deepfake).")
+            except Exception as e:
+                log.warning("Ensemble scorer 'nii' unavailable (%s); excluded.", e)
 
         for name, spec in config.HF_SCORERS.items():
             if not spec.get("enabled", True):

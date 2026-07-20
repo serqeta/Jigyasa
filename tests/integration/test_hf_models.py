@@ -49,6 +49,7 @@ def test_get_scorers_returns_full_ensemble():
 
     scorers = get_scorers()
     enabled = {k for k, s in cfg.HF_SCORERS.items() if s.get("enabled", True)}
-    assert set(scorers) >= {"stage1", "phase_pitch", *enabled}
+    assert set(scorers) >= {"nii", "phase_pitch", *enabled}
+    assert "stage1" not in scorers, "AASIST was retired from the ensemble"
     disabled = set(cfg.HF_SCORERS) - enabled
     assert not disabled & set(scorers), "disabled models must not join the ensemble"

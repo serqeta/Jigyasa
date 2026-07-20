@@ -274,6 +274,19 @@ export function VoiceShieldProvider({ children }) {
     }
   }, [])
 
+  const captureSample = useCallback(async (label) => {
+    try {
+      const res = await fetch(
+        `${stateRef.current.serverUrl}/v2/debug/capture?label=${encodeURIComponent(label || 'sample')}`,
+        { method: 'POST' },
+      )
+      if (!res.ok) throw new Error(await res.text())
+      return await res.json()
+    } catch (e) {
+      return { error: e.message }
+    }
+  }, [])
+
   const exportJson = useCallback(() => {
     const data = { summary: stateRef.current.summary, entries: stateRef.current.entries }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -305,7 +318,7 @@ export function VoiceShieldProvider({ children }) {
       connectWs, disconnectWs,
       analyzeFile, cancelAnalysis,
       resetState, exportJson, exportCsv, exportEvidence,
-      startMic, stopMic,
+      startMic, stopMic, captureSample,
       checkHealth,
     }}>
       {children}

@@ -121,6 +121,50 @@ Silence after AMBER used to hold AMBER and could escalate to RED off the stale 4
 - New peak-evidence rule in fuse_scores: fused ≥ 0.8 × max over PEAK_COMPONENTS — a confident validated detector cannot be averaged away. PEAK_COMPONENTS=("ssl",) only; wavlm excluded because of the genuine-speaker misfires above.
 - Final weights: stage1 .10, ssl .40, spec .15(disabled), wavlm .25, phase_pitch .10, replay .15.
 
+## Model-selection evaluation & ensemble overhaul *(2026-07-20)*
+
+### Why
+User-reported reliability problems: AASIST false positives, other models false negatives, plus concern that our home-grown eval set couldn't cover modern generators (GANs etc.).
+
+### Evaluation set (scripts/build_evalset.py + scripts/fetch_benchmark.py)
+496 clips: 40 LibriSpeech speakers + 2 Arctic (genuine), SpeechT5×5 + VITS + 2 ElevenLabs clips (fakes), opus-16k codec variants of both, PLUS benchmark samples fetched anonymously from HF: WaveFake (7 GAN vocoders + real LJSpeech), ASVspoof 2021 DF (100+ TTS/VC attacks), In-the-Wild (real-world deepfakes).
+
+### Results (AUC / FPR@0.5 / FNR@0.5)
+- nii mms-300m-anti-deepfake: **0.997 / 0.05 / 0.02** — per-source AUC 1.00 on GAN, ASVspoof, ITW, ours. Clear winner.
+- wavlm_itw 0.87 / 0.06 / 0.56 · xlsr_gustking 0.73 / 0.06 / 0.54 — kept as diversity members.
+- aasist **0.33** (worse than random; genuine μ 0.66 > fake μ 0.46) → retired from ensemble, /v1 compat only.
+- ast_asvspoof5 (0.49, says spoof to everything), w2v2_melody (0.44), phase_pitch/fallback (~0.5) → zero weight.
+
+### NII integration
+fairseq-only checkpoint converted to transformers format (scripts/convert_nii.py, clean 422/422 key mapping) and validated against the reference implementation in a py3.10 side-venv (max score diff 0.011). Runs in-process fp16 GPU as classifier/nii_scorer.py. **License CC BY-NC-SA (non-commercial) — see NOTICE.md.**
+
+### New calibration (from measured quantiles)
+FUSION_WEIGHTS: nii .50, ssl .15, wavlm .15, rest 0. PEAK_COMPONENTS: nii 0.8 (genuine p99 0.81→floor 0.65<RED; fake median 0.997→0.80=RED), ssl 0.8, wavlm 0.6. Cascade screener switched from AASIST to NII (config.CASCADE_SCREENER). fuse_scores falls back to plain mean when all present components are zero-weight (Stage 1 single-scorer compat).
+
+### Replay recalibration
+freq_response rebuilt as a loudspeaker-channel composite (low-band deficit + high-band deficit + spectral tilt), calibrated on simulated channels: separates medium/telephone-grade playback (~0.9) from genuine (~0.0); mild channels and codec round-trips are NOT separable by LTAS features (documented). double_compression and background_mismatch proven non-discriminative → zero internal weight, display only. Replay fusion weight stays 0.0 (future work per user decision).
+
+### HF auth gotcha
+A stale user token in ~/.cache/huggingface/token 401s every implicit-auth request; all scripts run with HF_HUB_DISABLE_IMPLICIT_TOKEN=1.
+
+## Parameter hardening round *(2026-07-20, same session)*
+
+### Implemented
+- **Temporal smoothing** (config.SCORE_SMOOTHING_CHUNKS=3): state engine sees the median of the last 3 speech-chunk fused scores (history clears on silence). Cascade engagement still reacts to the RAW score so a single hot probe engages Stage 2 immediately — only the user-facing state is smoothed.
+- **Confidence gate** (config.CONFIDENCE_GATE_LOW=0.15): on non-probe, non-engaged chunks where the NII screener is confidently clean, XLS-R/WavLM/replay are skipped. Probes and suspicious/engaged chunks always run the full ensemble, preserving the multi-model-consensus requirement for instant-RED.
+
+### Measured (scripts/build_hindi_eval.py + inline measurement)
+- **Hindi** (40 FLEURS genuine vs 6 MMS-TTS-hin fakes): nii AUC **1.000** (genuine max 0.01), ssl 0.986, wavlm 0.819 (one genuine at 1.0 — its known FP mode, stays non-peak). Pipeline: 100% of Hindi fakes AMBER ≤5 s (median 1.5 s), 5/6 RED ≤10 s — the weakest VITS fake alerts at sustained AMBER only (nii 0.27–0.4 on it).
+- **Window length** (nii, 2/4/8 s): AUC 0.999 / 0.997 / 1.000 — no meaningful difference; keeping 4 s (ssl/wavlm trained near it; zero-risk).
+- **Noise robustness** (15 dB additive noise + mild reverb): nii AUC drops to 0.807 (fake μ 0.88→0.47), ssl 0.716, wavlm collapses to 0.575. Documented limit: heavily noisy calls reduce detection confidence; SNR gate already marks <12 dB as REDUCED.
+
+### Detection-timing benchmark (scripts/bench_detection.py, full cascade, GPU)
+- Fakes (n=323): 98.1% reach AMBER, 95.0% reach RED ≤10 s; median time-to-AMBER 1.5 s, time-to-RED 1.5 s (p90 2.5 s). Among fakes ≥4 s long: 99.0% RED ≤10 s (short benchmark clips end before hysteresis can fire).
+- Genuine (n=173, incl. codec + noisy wild domains): 26% have ≥1 transient AMBER chunk, 3.5% ≥1 RED chunk (concentrated in hard domains: Arctic, LJSpeech-era recordings, noisy celebrity audio). Demo fixtures: zero alerts.
+- Latency per 500 ms chunk: p50 117 ms, p95 208 ms, p99 238 ms on the RTX 4050 laptop (budget 200 ms — p95 4% over when deep-scanning every chunk of attack audio; screening-dominated genuine traffic is well under. Future optimization: confidence-gate the diversity members on NII's score).
+
+---
+
 ### Acceptance results (full ensemble, GPU)
 - genuine male/female: mean 0.153/0.134, zero AMBER/RED chunks.
 - TTS: first_red_t = 1.0 s (gate ≤ 10 s). Clone: first_amber_t = 1.0 s (≤5), first_red_t = 1.0 s (≤10).

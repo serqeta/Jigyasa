@@ -1,7 +1,8 @@
 import React from 'react'
 
 const MODEL_META = {
-  stage1: { label: 'AASIST-L', detail: 'raw waveform anti-spoofing' },
+  nii: { label: 'MMS-300M (NII)', detail: 'multilingual anti-deepfake · primary · AUC 0.997' },
+  stage1: { label: 'AASIST-L', detail: 'legacy — retired by evaluation, not fused' },
   ssl: { label: 'XLS-R 300M', detail: 'SSL deepfake classifier' },
   spec: { label: 'AST', detail: 'spectrogram transformer · ASVspoof 5' },
   wavlm: { label: 'WavLM', detail: 'In-the-Wild deepfakes' },
@@ -91,7 +92,7 @@ export default function EnsemblePanel({ entry }) {
   const scores = entry?.component_scores
   if (!scores || Object.keys(scores).length === 0) return null
 
-  const order = ['stage1', 'ssl', 'spec', 'wavlm', 'phase_pitch', 'replay']
+  const order = ['nii', 'ssl', 'wavlm', 'stage1', 'spec', 'phase_pitch', 'replay']
   const keys = [
     ...order.filter(k => k in scores),
     ...Object.keys(scores).filter(k => !order.includes(k)),

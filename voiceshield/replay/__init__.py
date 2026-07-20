@@ -16,11 +16,17 @@ from voiceshield.replay.detectors import (
     reverb_score,
 )
 
+# Calibrated 2026-07-20: freq_response (loudspeaker-channel composite) and
+# reverb are the detectors with measured separation on realistic channels.
+# double_compression never fires on real codecs (opus/WhatsApp keep the
+# bandwidth its cliff heuristic looks for) and background_mismatch
+# saturates on genuine speech (it measures pauses, not background) — both
+# are display-only at zero weight until rebuilt on real call recordings.
 _WEIGHTS = {
     "reverb": 0.30,
-    "freq_response": 0.30,
-    "double_compression": 0.20,
-    "background_mismatch": 0.20,
+    "freq_response": 0.70,
+    "double_compression": 0.0,
+    "background_mismatch": 0.0,
 }
 
 

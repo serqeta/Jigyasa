@@ -8,29 +8,34 @@ from voiceshield.pipeline.state_engine import compute_final, fuse_scores
 
 
 def test_single_component_is_identity():
+    # zero-weighted single component → plain-mean fallback keeps identity
+    # (Stage 1 single-scorer compatibility path)
     assert fuse_scores({"stage1": 0.62}) == pytest.approx(0.62)
 
 
-def test_weighted_mean_two_components():
-    # stage1: 0.10, ssl: 0.40 → (0.10*1.0 + 0.40*0.0) / 0.50; ssl peak is 0
-    fused = fuse_scores({"stage1": 1.0, "ssl": 0.0})
-    assert fused == pytest.approx(0.10 / 0.50)
+def test_weighted_mean_dominates_when_above_floors():
+    # nii 0.50, ssl 0.15 → (0.5*0.8 + 0.15*0.2) / 0.65 = 0.6615…
+    # peak floors (0.8*0.8=0.64, 0.8*0.2=0.16) sit below the mean.
+    fused = fuse_scores({"nii": 0.8, "ssl": 0.2})
+    assert fused == pytest.approx((0.5 * 0.8 + 0.15 * 0.2) / 0.65)
 
 
 def test_peak_evidence_floor():
     # A confident validated detector must not be averaged away: fused is
     # floored at each peak component's factor × its score.
-    fused = fuse_scores({"stage1": 0.0, "ssl": 0.95, "phase_pitch": 0.0, "replay": 0.0})
+    fused = fuse_scores({"nii": 0.0, "ssl": 0.95, "phase_pitch": 0.0, "replay": 0.0})
     assert fused == pytest.approx(0.8 * 0.95)
-    # wavlm gets a softer floor than ssl (demo calibration: 0.75 —
-    # RED-capable via hysteresis but never the 0.85 instant short-circuit)
-    fused = fuse_scores({"stage1": 0.0, "ssl": 0.0, "wavlm": 1.0, "phase_pitch": 0.0,
-                         "replay": 0.0})
-    assert fused == pytest.approx(0.75 * 1.0)
-    assert fused < 0.85  # instant-RED requires more than one model's word
-    # ...but non-peak components get no floor, however confident.
-    fused = fuse_scores({"stage1": 0.95, "phase_pitch": 0.0, "replay": 0.0})
-    assert fused < 0.5
+    # nii floor: fake-median 0.997 → RED-range, but never the 0.85
+    # instant short-circuit on its own
+    fused = fuse_scores({"nii": 0.997, "ssl": 0.0, "wavlm": 0.0})
+    assert fused == pytest.approx(0.8 * 0.997)
+    assert fused < 0.85
+    # wavlm solo ceiling stays AMBER (1% of genuine speakers hit 0.999)
+    fused = fuse_scores({"nii": 0.0, "ssl": 0.0, "wavlm": 1.0})
+    assert fused == pytest.approx(0.6)
+    # retired components get no floor and no weight, however confident
+    fused = fuse_scores({"nii": 0.05, "stage1": 0.99, "spec": 0.99})
+    assert fused < 0.10
 
 
 def test_missing_components_renormalize():
