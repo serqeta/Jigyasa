@@ -36,11 +36,14 @@ models/*.pt
 models/*.bin
 models/hf/
 
-# Evidence packages (audit exports — never committed)
-evidence/
+# Evidence packages (audit exports — never committed).
+# Anchored to repo root so it does NOT match the source package
+# voiceshield/evidence/.
+/evidence/
 
 # Calibration recordings (raw audio — never committed)
-eval_recordings/
+/eval_recordings/
+eval_set/
 
 # Audio fixtures (large binaries — generate/obtain separately)
 tests/fixtures/*.wav
