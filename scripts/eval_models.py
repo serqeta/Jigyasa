@@ -45,6 +45,12 @@ def load_candidates() -> dict:
         "phase_pitch": PhasePitchScorer(),
         "fallback_rules": FallbackScorer(),
     }
+    try:
+        from voiceshield.classifier.nii_scorer import NIIScorer
+
+        candidates["nii"] = NIIScorer()  # current primary detector
+    except Exception as e:
+        print(f"  ! nii failed to load: {e}")
     hf = {
         "xlsr_gustking": ("Gustking/wav2vec2-large-xlsr-deepfake-audio-classification", 1),
         "wavlm_itw": ("abhishtagatya/wavlm-base-960h-itw-deepfake", 1),
@@ -83,6 +89,32 @@ def auc(pos: np.ndarray, neg: np.ndarray) -> float:
     return float(wins / (len(pos) * len(neg)))
 
 
+def eer(pos: np.ndarray, neg: np.ndarray) -> float:
+    """Equal Error Rate — the standard anti-spoofing metric (ASVspoof).
+    Threshold where false-accept rate == false-reject rate."""
+    if len(pos) == 0 or len(neg) == 0:
+        return float("nan")
+    ths = np.unique(np.concatenate([pos, neg]))
+    diffs = [(abs((neg >= t).mean() - (pos < t).mean()),
+             ((neg >= t).mean() + (pos < t).mean()) / 2) for t in ths]
+    return float(min(diffs, key=lambda d: d[0])[1])
+
+
+def precision_at_base_rate(pos: np.ndarray, neg: np.ndarray, t: float,
+                           base_rate: float, consecutive: int = 1) -> float:
+    """Precision (P[fraud | flagged]) at a realistic fraud prevalence.
+
+    Reveals the base-rate trap AUC hides. `consecutive` models the
+    hysteresis rule: requiring N consecutive suspicious chunks
+    approximately powers FPR/TPR (independence assumption)."""
+    if len(pos) == 0 or len(neg) == 0:
+        return float("nan")
+    tpr = float((pos >= t).mean()) ** consecutive
+    fpr = float((neg >= t).mean()) ** consecutive
+    denom = tpr * base_rate + fpr * (1 - base_rate)
+    return float(tpr * base_rate / denom) if denom > 0 else 0.0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--set", required=True)
@@ -105,10 +137,19 @@ def main():
         pos, neg = scores[labels == 1], scores[labels == 0]
         fpr = float((neg >= 0.5).mean())
         fnr = float((pos < 0.5).mean())
+        e = eer(pos, neg)
+        # precision at 1% fraud prevalence: single chunk vs the deployed
+        # 2-consecutive-chunk hysteresis rule (shows why hysteresis matters)
+        prec1 = precision_at_base_rate(pos, neg, 0.5, 0.01, consecutive=1)
+        prec1_hys = precision_at_base_rate(pos, neg, 0.5, 0.01, consecutive=2)
         results[name] = {
             "auc": auc(pos, neg),
+            "eer": e,
             "fpr@0.5": fpr,
             "fnr@0.5": fnr,
+            "tpr@0.5": float((pos >= 0.5).mean()),
+            "precision@1pct_fraud": prec1,
+            "precision@1pct_fraud_hysteresis": prec1_hys,
             "genuine_mean": float(neg.mean()),
             "fake_mean": float(pos.mean()),
             "per_clip": [
@@ -116,9 +157,9 @@ def main():
                 for g, f, lbl, s in rows
             ],
         }
-        print(f"{name:16s} AUC={results[name]['auc']:.3f}  "
-              f"FPR@0.5={fpr:.2f}  FNR@0.5={fnr:.2f}  "
-              f"genuine μ={neg.mean():.2f}  fake μ={pos.mean():.2f}")
+        print(f"{name:16s} AUC={results[name]['auc']:.3f}  EER={e:.3f}  "
+              f"FPR@.5={fpr:.2f}  TPR@.5={(pos >= 0.5).mean():.2f}  "
+              f"prec@1%={prec1:.0%}  +hyst={prec1_hys:.0%}")
 
     # per-group breakdown for the top models
     print("\nPer-group mean scores:")

@@ -116,6 +116,41 @@ def _run_ensemble_analysis(tmp_path: str) -> dict:
     }
 
 
+@router.post("/watermark/check")
+async def watermark_check(file: UploadFile = File(...)) -> JSONResponse:
+    """
+    Standalone AI-watermark check (Meta AudioSeal) — on-demand, not part of
+    the real-time pipeline. Returns the probability that an AudioSeal-family
+    watermark is present (deterministic: ~1.0 if watermarked, ~0.0 otherwise;
+    codec-robust). Note: today's commercial TTS (e.g. ElevenLabs) do not use
+    this watermark, so a 0 here does not mean genuine — use the /v2/analyze
+    ensemble for that.
+    """
+    import librosa
+
+    suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
+    content = await file.read()
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+    try:
+        loop = asyncio.get_event_loop()
+
+        def _check() -> dict:
+            import numpy as np
+
+            from voiceshield.classifier.watermark_scorer import watermark_probability
+
+            audio, _ = librosa.load(tmp_path, sr=config.SAMPLE_RATE, mono=True)
+            prob = watermark_probability(np.asarray(audio, dtype="float32"))
+            return {"watermark_probability": round(prob, 4),
+                    "watermarked": prob >= 0.5}
+
+        return JSONResponse(await loop.run_in_executor(None, _check))
+    finally:
+        os.unlink(tmp_path)
+
+
 @router.post("/debug/capture")
 async def debug_capture(request: Request, label: str = "sample") -> JSONResponse:
     """

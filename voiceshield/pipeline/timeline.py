@@ -19,6 +19,8 @@ class TimelineEntry:
     component_scores: dict[str, float] | None = None
     replay: dict[str, float] | None = None
     stage2_active: bool = True
+    speaker_drift: float = 0.0
+    speaker_changed: bool = False
     spec_linear: list[list[float]] | None = None
     spec_mel: list[list[float]] | None = None
     spec_cqt: list[list[float]] | None = None

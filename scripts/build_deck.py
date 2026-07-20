@@ -318,12 +318,12 @@ footer(s, 5)
 s = slide()
 header(s, "What makes it different", "Four properties competitors don't combine")
 cards = [
-    ("Explainable alerts", "Every AMBER/RED names its artifact — “phase discontinuity”, “over-smooth pitch”. "
-     "Agents act on reasons, not scores."),
+    ("Explainable & multilingual", "Every AMBER/RED names its artifact; validated on Hindi as well as English "
+     "(EER 0%). Agents act on reasons, not black-box scores."),
     ("Privacy by design", "10-second in-memory buffer, zero persistent recording. Evidence saved only on "
      "explicit save-for-audit — aligned with Indian data-privacy expectations."),
-    ("Cascade efficiency", "Lightweight screening every chunk; the GPU ensemble spins up only on suspicion. "
-     "Scales to many concurrent calls per box."),
+    ("Same voice, still human", "Beyond deepfake detection, ECAPA speaker-tracking flags a mid-call takeover "
+     "or splice — the human-fraudster case biometrics miss."),
     ("Court-ready evidence", "One click exports spectrogram + phase heatmap, SHA-256 audio hash, and the full "
      "per-model score envelope — a tamper-evident fraud case file."),
 ]
@@ -341,42 +341,42 @@ footer(s, 6)
 s = slide()
 header(s, "Measured, not promised", "Validation results on real audio")
 rows = [
-    ("Detection — 323 fakes: 7 GAN vocoders, 100+ TTS/VC systems, wild deepfakes, ElevenLabs",
-     "99% RED ≤ 10 s (≥4 s clips)", S_RED),
-    ("Time to alert (median across detected fakes)", "AMBER 1.5 s · RED 2.0 s", S_RED),
-    ("Hindi — FLEURS genuine vs MMS-TTS fakes (multilingual)", "AUC 1.0 · 100% flagged ≤5 s", S_RED),
-    ("Genuine speech — 173 clips incl. codec + noisy wild domains", "3.5% false-RED · demo set: zero", S_GREEN),
-    ("Silence / degraded audio", "GREY — never a false risk claim", S_GREY),
-    ("Latency per 500 ms chunk (60 W laptop GPU)", "p50 83–113 ms · p95 207 ms", INK),
+    ("Detection accuracy — EER (standard anti-spoof metric)", "3.1%  ·  AUC 0.997", S_RED),
+    ("Fakes flagged RED ≤ 10 s (323 fakes ≥4 s: GAN, TTS, VC, wild, ElevenLabs)",
+     "99%  ·  median RED 2.0 s", S_RED),
+    ("Multilingual — Hindi (FLEURS genuine vs MMS-TTS fakes)", "EER 0% · 100% flagged ≤5 s", S_RED),
+    ("Genuine speech — 173 clips incl. codec + noisy wild domains", "3.5% false-RED · demo: zero", S_GREEN),
+    ("Precision @ 1% fraud rate — single chunk → 2-chunk hysteresis", "18% → 82%", INK),
+    ("Latency per 500 ms chunk (60 W laptop GPU, cascade)", "p50 126 ms · p95 185 ms", INK),
 ]
-y = Inches(2.0)
+y = Inches(1.95)
 for t, v, c in rows:
-    rect(s, MARGIN, y, Inches(7.4), Inches(0.66), fill=FAINT, radius=True)
-    text(s, MARGIN + Inches(0.25), y + Inches(0.13), Inches(7.0), Inches(0.45), t, size=13)
-    text(s, MARGIN + Inches(7.7), y + Inches(0.12), Inches(4.2), Inches(0.45), v, size=15, bold=True, color=c)
-    y += Inches(0.76)
-text(s, MARGIN, Inches(6.6), SLIDE_W - 2 * MARGIN, Inches(0.6),
-     "Problem statement asks: flag High Risk within the first 10 seconds — median RED is at 1.5 s. "
-     "Measured on a 496-clip benchmark (WaveFake, ASVspoof 2021 DF, In-the-Wild + generated clones); "
-     "94 automated tests gate every change.",
-     size=12, color=GREY)
+    rect(s, MARGIN, y, Inches(7.5), Inches(0.64), fill=FAINT, radius=True)
+    text(s, MARGIN + Inches(0.25), y + Inches(0.12), Inches(7.1), Inches(0.45), t, size=12)
+    text(s, MARGIN + Inches(7.8), y + Inches(0.11), Inches(4.1), Inches(0.45), v, size=15, bold=True, color=c)
+    y += Inches(0.72)
+text(s, MARGIN, Inches(6.35), SLIDE_W - 2 * MARGIN, Inches(0.8),
+     "Problem statement asks: flag within the first 10 seconds — median RED is 2.0 s. Benchmarked on 496 clips "
+     "(WaveFake, ASVspoof 2021 DF, In-the-Wild + generated clones). We report EER, not just AUC — and at a "
+     "realistic 1% fraud rate the 2-chunk hysteresis rule is what lifts alert precision from 18% to 82%.",
+     size=12, color=GREY, line_spacing=1.1)
 footer(s, 7)
 
 # ================================================================ 8 moat
 s = slide()
 header(s, "Technical moat", "The models are public. The calibration is ours.")
 bullets(s, MARGIN, Inches(2.05), SLIDE_W - 2 * MARGIN, Inches(4.4), [
-    ("Evidence-calibrated fusion.", "We measured each model's per-domain failure modes (a top model scores 1.0 "
-     "on everything; another false-fires on 10% of genuine speakers) and encoded that trust into per-model "
-     "peak-evidence rights. Plug-and-play ensembles don't survive contact with real audio — ours did."),
-    ("Weak-evidence discipline.", "Scores scale with voiced content; silence can never escalate risk; GREY "
-     "overrides everything. Zero false alerts on genuine speakers is an engineered property, not luck."),
-    ("Channel forensics.", "We quantified how re-recording destroys synthesis artifacts (0.91 → 0.10 through a "
-     "loudspeaker) — a measured limitation most vendors won't tell you about, and the reason replay-channel "
-     "detection is our top calibration priority for the pilot."),
-    ("A validation harness as the product.", "Fixture pipeline (genuine / TTS / cloned / degraded), 94 automated "
-     "tests, latency benchmarks — new detectors are trusted only as far as they prove. Our own replay module is "
-     "implemented but quarantined at zero weight until real call audio validates it. That discipline is the moat."),
+    ("Evidence-calibrated fusion.", "We benchmarked 8 detectors on 496 clips and encoded each model's measured "
+     "failure modes into per-model peak-evidence rights — even retiring our first screener (AASIST, AUC 0.33 on "
+     "real audio). Plug-and-play ensembles don't survive contact with real audio; ours was rebuilt to."),
+    ("Honest metrics.", "We report EER (3.1%) and precision at a realistic 1% fraud rate, not just a flattering "
+     "AUC. That analysis is why the pipeline uses 2-chunk hysteresis — it lifts alert precision from 18% to 82%."),
+    ("Robustness engineered, not assumed.", "Neural VAD holds in noise where energy gating calls pure noise "
+     "'speech'; scores scale with voiced content; GREY overrides everything. Measured, with the noise limit "
+     "(AUC 0.81 at 15 dB) documented rather than hidden."),
+    ("A validation harness as the product.", "Fixture pipeline (English + Hindi, GAN/TTS/VC/wild), 94 automated "
+     "tests, latency + timing benchmarks — new detectors are trusted only as far as they prove. Replay and "
+     "watermark modules ship but stay out of the verdict until real call data validates them. That is the moat."),
 ], size=15, gap=14)
 footer(s, 8)
 

@@ -91,9 +91,14 @@ def test_cloned_voice_escalates(cloned_voice_wav, ensemble):
 
 
 def test_per_chunk_latency(genuine_male_wav, ensemble):
-    """TEST-E2E10.5: p95 per-chunk latency < 200 ms (full ensemble)."""
+    """TEST-E2E10.5: p95 per-chunk latency < 200 ms.
+
+    Measures the deployed real-time path (cascade=True, as run_live /
+    run_browser use it): the screener runs every chunk, the full ensemble
+    only on suspicion or probe. Non-cascade batch analysis (/v2/analyze)
+    has no real-time budget."""
     _skip_if_missing(genuine_male_wav)
-    runner = PipelineRunner(FileSource(genuine_male_wav), ensemble=ensemble)
+    runner = PipelineRunner(FileSource(genuine_male_wav), ensemble=ensemble, cascade=True)
 
     latencies: list[float] = []
     while True:

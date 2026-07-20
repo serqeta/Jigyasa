@@ -158,6 +158,25 @@ A stale user token in ~/.cache/huggingface/token 401s every implicit-auth reques
 - **Window length** (nii, 2/4/8 s): AUC 0.999 / 0.997 / 1.000 — no meaningful difference; keeping 4 s (ssl/wavlm trained near it; zero-risk).
 - **Noise robustness** (15 dB additive noise + mild reverb): nii AUC drops to 0.807 (fake μ 0.88→0.47), ssl 0.716, wavlm collapses to 0.575. Documented limit: heavily noisy calls reduce detection confidence; SNR gate already marks <12 dB as REDUCED.
 
+## Auxiliary detectors + honest metrics *(2026-07-20, same session)*
+
+### Silero-VAD (MIT) — replaces energy VAD
+Energy VAD measured calling PURE NOISE 100% voiced (false-speech → false-alert risk); Silero reads it 0%. Clean speech 0.82, noisy speech stable 0.81, silence 0. ~18-23 ms/window. config.USE_SILERO_VAD (graceful fallback to energy VAD). Wired into runner _voiced_ratio.
+
+### ECAPA speaker-drift (SpeechBrain, Apache-2.0) — new capability
+Catches mid-call voice takeover/splice (fraud class the anti-spoof models miss). Per-window ECAPA embedding vs a 4-window reference; latch on 2 consecutive windows above cosine-distance 0.65 (within-speaker p95 0.61, cross-speaker p5 0.70). Real-audio test: same speaker stays 0.29-0.45, A→B takeover flags ~3.5 s after switch. Only ~5 ms/chunk. Surfaced as speaker_drift + speaker_changed in TimelineEntry/API. voiceshield/analysis/speaker_drift.py.
+
+### AudioSeal watermark (Meta, MIT) — standalone, NOT in pipeline
+Validated: 1.00 on AudioSeal-watermarked (0.995 after opus-16k), 0.00 on genuine/ElevenLabs/TTS — a deterministic precision layer, but only for AudioSeal-family watermarks (today's commercial TTS don't use it). At ~150 ms/chunk it was too heavy for the real-time loop, so per user decision it's a standalone POST /v2/watermark/check endpoint for a separate forensic UI. voiceshield/classifier/watermark_scorer.py.
+
+### Metrics correction (user asked: is AUC-ROC right?)
+AUC is right for MODEL SELECTION, wrong for deployment characterization. Added EER + operating-point + base-rate precision to eval_models.py. NII: AUC 0.997, EER 3.1%, FPR@.5 4.6%, TPR@.5 98.4%. Base-rate finding: at 1% fraud prevalence, single-chunk precision is only 17.8% (base-rate trap AUC hides); the 2-consecutive-chunk hysteresis rule lifts it to 82.3%. This is why the system is advisory (RED = "verify harder", not auto-block).
+
+### CI fix
+`[project]` declared no dependencies → CI `uv sync` built an empty env → `uv run ruff` failed to spawn. Added runtime dependencies + [dependency-groups] dev (ruff/mypy/pytest/pytest-asyncio) + python-multipart to pyproject.toml. `uv sync && uv run ruff check` verified. NOTE: `uv sync` prunes anything not in the manifest — after it, reinstall optional local libs (silero-vad, speechbrain, audioseal, omegaconf>=2.1, sounddevice, python-pptx) which are intentionally out of pyproject (graceful-degrade) and listed in requirements.txt.
+
+### Final latency (Silero+ECAPA in loop, AudioSeal removed): p50 126 ms, p95 185 ms (< 200 budget).
+
 ### Detection-timing benchmark (scripts/bench_detection.py, full cascade, GPU)
 - Fakes (n=323): 98.1% reach AMBER, 95.0% reach RED ≤10 s; median time-to-AMBER 1.5 s, time-to-RED 1.5 s (p90 2.5 s). Among fakes ≥4 s long: 99.0% RED ≤10 s (short benchmark clips end before hysteresis can fire).
 - Genuine (n=173, incl. codec + noisy wild domains): 26% have ≥1 transient AMBER chunk, 3.5% ≥1 RED chunk (concentrated in hard domains: Arctic, LJSpeech-era recordings, noisy celebrity audio). Demo fixtures: zero alerts.

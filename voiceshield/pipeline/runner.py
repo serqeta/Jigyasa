@@ -26,7 +26,14 @@ def _extract_features(audio: np.ndarray) -> dict[str, float]:
 
 
 def _voiced_ratio(audio: np.ndarray) -> float:
-    """Fraction of frames in the window that contain speech energy."""
+    """Fraction of the window that contains speech.
+
+    Uses Silero-VAD when enabled (robust in noise); otherwise the
+    energy-threshold VAD."""
+    if config.USE_SILERO_VAD:
+        from voiceshield.features.silero_vad import voiced_ratio
+
+        return voiced_ratio(audio)
     mask = compute_vad(audio, threshold_db=config.VAD_THRESHOLD_DB)
     if mask.size == 0:
         return 0.0
@@ -106,6 +113,11 @@ class PipelineRunner:
         self._cascade_clean = 0
         self._chunks_since_probe = 0
         self._score_history: deque[float] = deque(maxlen=config.SCORE_SMOOTHING_CHUNKS)
+        self._drift_tracker = None
+        if config.ENABLE_SPEAKER_DRIFT:
+            from voiceshield.analysis import SpeakerDriftTracker
+
+            self._drift_tracker = SpeakerDriftTracker()
         self._buffer = RollingBuffer()
         self._source = source
         self._state_engine = StateEngine()
@@ -182,6 +194,7 @@ class PipelineRunner:
 
         component_scores: dict[str, float] = {}
         replay_result = None
+        drift = {"drift": 0.0, "speaker_changed": False}
 
         if not speech_active:
             score = 0.0
@@ -252,6 +265,13 @@ class PipelineRunner:
                 self._update_cascade(raw_score)
             artifact = top_artifact_name(features)
 
+            # Speaker-consistency: is this still the same voice as the call
+            # started with? Advisory only — never feeds the spoof score.
+            if self._drift_tracker is not None:
+                d = self._drift_tracker.update(audio_win)
+                if d["ready"]:
+                    drift = d
+
         # State engine sees GREY whenever there is no fresh speech, whatever
         # the SNR gate said — silence must read GREY, never held/escalated risk.
         effective_gate = gate if speech_active else GateState.GREY
@@ -281,6 +301,8 @@ class PipelineRunner:
             component_scores={k: round(v, 4) for k, v in component_scores.items()},
             replay=replay_result.to_dict() if replay_result else None,
             stage2_active=(not self._cascade) or self._stage2_active,
+            speaker_drift=float(drift["drift"]),
+            speaker_changed=bool(drift["speaker_changed"]),
             first_amber_t=self._state_engine.first_amber_t,
             first_red_t=self._state_engine.first_red_t,
             spec_linear=visuals["spec_linear"],
@@ -323,3 +345,5 @@ class PipelineRunner:
         self._cascade_clean = 0
         self._chunks_since_probe = 0
         self._score_history.clear()
+        if self._drift_tracker is not None:
+            self._drift_tracker.reset()

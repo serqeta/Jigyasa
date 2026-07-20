@@ -16,8 +16,14 @@ SNR_GREY_DB = 8.0
 # Voice-activity gate: forensic features are only meaningful on speech.
 # A window with too few voiced frames is scored 0.0 (nothing to analyze)
 # rather than letting silence masquerade as a synthetic artifact.
-VAD_THRESHOLD_DB = -40.0  # frame energy above this counts as speech
+VAD_THRESHOLD_DB = -40.0  # frame energy above this counts as speech (fallback)
 MIN_VOICED_RATIO = 0.20   # require >=20% voiced frames in the window to score
+
+# Neural VAD (Silero, MIT ~2 MB). Robust in noise where the energy
+# threshold fails — measured 2026-07-20: energy VAD reads pure noise as
+# 100% voiced (false speech), Silero reads 0%. Falls back to energy VAD
+# if the model can't load.
+USE_SILERO_VAD = True
 
 # Risk state mapping
 SCORE_AMBER = 0.30
@@ -149,6 +155,21 @@ EVIDENCE_FULL_VOICED_RATIO = 0.5
 CASCADE_TRIGGER = SCORE_AMBER       # stage1 score that engages Stage 2
 CASCADE_COOLDOWN_CHUNKS = 4         # clean fused chunks before disengaging
 CASCADE_PROBE_EVERY = 4             # deep-probe cadence (chunks) while screening
+
+# AI-watermark detection (Meta AudioSeal, MIT) is NOT in the real-time
+# pipeline — at ~150 ms/chunk it is too heavy for a signal that reads ~0 on
+# every non-AudioSeal-watermarked source (all of today's commercial TTS).
+# It is exposed as a standalone on-demand check (POST /v2/watermark/check)
+# for a separate forensic UI. See classifier/watermark_scorer.py.
+
+# Speaker-consistency tracking (ECAPA-TDNN, SpeechBrain, Apache-2.0).
+# Detects the voice on the call changing mid-conversation (fraudster
+# takeover / splice) — orthogonal to synthetic detection. Advisory signal
+# surfaced in the timeline, not fused into the spoof score.
+ENABLE_SPEAKER_DRIFT = True
+SPEAKER_REF_WINDOWS = 4          # windows to fix the reference voice (stable mean)
+SPEAKER_DRIFT_THRESHOLD = 0.65  # cosine distance: within-speaker p95 0.61, cross-speaker p5 0.70
+SPEAKER_DRIFT_CONSEC = 2        # consecutive high-drift windows to latch "changed"
 
 # Evidence export (privacy: written ONLY on explicit API request, never
 # automatically — G10).

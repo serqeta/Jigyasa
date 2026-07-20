@@ -5,6 +5,7 @@ screening, and disengages after sustained clean audio.
 """
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 import voiceshield.config as cfg
@@ -12,6 +13,14 @@ from voiceshield.audio.source import FileSource
 from voiceshield.pipeline.runner import PipelineRunner
 
 SR = cfg.SAMPLE_RATE
+
+
+@pytest.fixture(autouse=True)
+def _energy_vad(monkeypatch):
+    # These tests drive the cascade state machine with synthetic sine
+    # proxies, which the neural VAD (correctly) does not classify as
+    # speech. Pin them to the deterministic energy VAD.
+    monkeypatch.setattr(cfg, "USE_SILERO_VAD", False)
 
 
 class _Sequence:

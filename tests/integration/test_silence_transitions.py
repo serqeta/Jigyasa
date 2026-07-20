@@ -7,6 +7,7 @@ GREEN→silence behavior.
 """
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 import voiceshield.config as cfg
@@ -14,6 +15,13 @@ from voiceshield.audio.source import FileSource
 from voiceshield.pipeline.runner import PipelineRunner
 
 SR = cfg.SAMPLE_RATE
+
+
+@pytest.fixture(autouse=True)
+def _energy_vad(monkeypatch):
+    # Synthetic sine proxies exercise silence/hysteresis transitions; the
+    # neural VAD (correctly) rejects them as non-speech. Pin to energy VAD.
+    monkeypatch.setattr(cfg, "USE_SILERO_VAD", False)
 
 
 class _FixedScorer:

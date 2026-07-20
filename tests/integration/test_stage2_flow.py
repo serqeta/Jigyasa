@@ -7,6 +7,7 @@ real pretrained models are exercised by tests/integration/test_hf_models.py
 """
 
 import numpy as np
+import pytest
 import soundfile as sf
 from fastapi.testclient import TestClient
 
@@ -18,6 +19,13 @@ from voiceshield.classifier.phase_pitch import PhasePitchScorer
 from voiceshield.pipeline.runner import PipelineRunner
 
 SR = cfg.SAMPLE_RATE
+
+
+@pytest.fixture(autouse=True)
+def _energy_vad(monkeypatch):
+    # Synthetic sine proxies aren't classified as speech by the neural VAD;
+    # pin these flow tests to the deterministic energy VAD.
+    monkeypatch.setattr(cfg, "USE_SILERO_VAD", False)
 
 
 def _speech_wav(tmp_path, seconds: float = 3.0) -> str:
