@@ -48,9 +48,8 @@ class NIIScorer:
             self._fc_w = self._fc_w.half()
             self._fc_b = self._fc_b.half()
 
-    def score(self, audio: np.ndarray) -> float:
-        if audio is None or len(audio) == 0:
-            return 0.0
+    def _pooled(self, audio: np.ndarray):
+        """Mean-pooled SSL embedding (1024-d torch tensor) for a window."""
         torch = self._torch
         wav = torch.from_numpy(np.ascontiguousarray(audio, dtype=np.float32))
         # reference implementation normalizes the raw waveform with LayerNorm
@@ -60,7 +59,21 @@ class NIIScorer:
             wav = wav.half()
         with torch.no_grad():
             emb = self._ssl(wav).last_hidden_state  # (1, T, 1024)
-            pooled = emb.mean(dim=1)  # AdaptiveAvgPool1d(1) equiv
+            return emb.mean(dim=1)  # (1, 1024)
+
+    def embed(self, audio: np.ndarray) -> np.ndarray:
+        """Public SSL embedding (float32, 1024-d) — reused by the replay
+        head so it costs no extra forward pass beyond scoring."""
+        if audio is None or len(audio) == 0:
+            return np.zeros(1024, dtype=np.float32)
+        return self._pooled(audio).float().cpu().numpy().reshape(-1)
+
+    def score(self, audio: np.ndarray) -> float:
+        if audio is None or len(audio) == 0:
+            return 0.0
+        torch = self._torch
+        with torch.no_grad():
+            pooled = self._pooled(audio)
             logits = pooled @ self._fc_w.T + self._fc_b  # (1, 2)
             probs = torch.softmax(logits.float(), dim=-1)
         return float(probs[0, 0].item())  # index 0 = fake

@@ -2,6 +2,43 @@
 
 ---
 
+## Replay detection — FINAL VERDICT *(2026-07-20)*
+
+Four approaches tried to make replay/physical-access detection generalize
+to our real browser-mic channel; all failed the held-out real-recording
+test (our 12 recordings: 8 genuine live + 4 loudspeaker playbacks):
+
+1. Hand-tuned DSP (reverb/freq/compression), calibrated on simulation → ~random.
+2. LFCC + logreg trained on ASVspoof2017 real replay (200-sample HF mirror)
+   → AUC 0.19 (flags everything as replay).
+3. LFCC + logreg trained on ASVspoof2019 PA (streamed 300+300 from the 16 GB
+   DataShare zip via range requests, 27 acoustic configs) → no separation
+   (flags everything genuine; cross-corpus real-replay ASVspoof2017 AUC 0.57).
+4. On-channel LOO on our 12 → 0.906, BUT invalid for deployment: it only
+   proves the record-room; the demo is a different room = different channel.
+
+Root cause: replay detection is fundamentally channel/device-specific and
+does not transfer across capture chains (well-documented ASVspoof-PA
+limitation). No pretrained PA/replay model exists on HF (all are LA/synthesis).
+DECISION: replay stays at ZERO fusion weight, documented pilot work needing
+per-site calibration. In real deployment the fraudster's replay arrives
+DIGITALLY through the phone network (codec artifacts), not through-air into
+a room mic — a different, more tractable problem for the pilot.
+
+Shipped-pipeline verdict on the 12 real recordings (deepfake ensemble):
+11/12 correct. All 8 genuine live → GREEN/GREY (zero false alarms). All 3
+genuine voice-memo replays → GREEN (correct — genuine content). The one MISS
+is the ElevenLabs clone played through-air (synthesis artifacts destroyed by
+the speaker→air→mic channel) — but the SAME clip delivered digitally is
+caught RED in 2-3 s (the production path).
+
+Investigation harness: scripts/fetch_replay_data.py (ASVspoof2017),
+fetch_pa2019.py (stream PA from DataShare zip), train_replay.py (NII-embed
+head), eval_replay_pa.py (LFCC head, 3-way held-out eval). Real recordings
+in eval_recordings/ (git-ignored). NII embed() method added for reuse.
+
+---
+
 ## Phase 0 — Setup *(session 1)*
 
 ### Actions taken
@@ -157,6 +194,31 @@ A stale user token in ~/.cache/huggingface/token 401s every implicit-auth reques
 - **Hindi** (40 FLEURS genuine vs 6 MMS-TTS-hin fakes): nii AUC **1.000** (genuine max 0.01), ssl 0.986, wavlm 0.819 (one genuine at 1.0 — its known FP mode, stays non-peak). Pipeline: 100% of Hindi fakes AMBER ≤5 s (median 1.5 s), 5/6 RED ≤10 s — the weakest VITS fake alerts at sustained AMBER only (nii 0.27–0.4 on it).
 - **Window length** (nii, 2/4/8 s): AUC 0.999 / 0.997 / 1.000 — no meaningful difference; keeping 4 s (ssl/wavlm trained near it; zero-risk).
 - **Noise robustness** (15 dB additive noise + mild reverb): nii AUC drops to 0.807 (fake μ 0.88→0.47), ssl 0.716, wavlm collapses to 0.575. Documented limit: heavily noisy calls reduce detection confidence; SNR gate already marks <12 dB as REDUCED.
+
+## Replay detection — real-recording validation *(2026-07-20)*
+
+Collected matched recordings through the real browser-mic path
+(eval_recordings/, git-ignored): 5 genuine live (quiet/far/noisy/other-
+speaker/room2) + 4 loudspeaker playbacks (phone memo/clone/far/loud).
+
+VERDICT: the DSP replay detectors do NOT work on real audio. Combined
+replay score — genuine live 0.00-0.27 (freq_response over-fires to
+0.31/0.39 on noisy + other-speaker); real loudspeaker 0.00 / 0.05 / 0.00 /
+0.34. Three of four real replays scored ≤0.05, BELOW the genuine ceiling.
+No usable threshold exists. The simulation was optimistic (assumed large
+low-band deficit; real phone-into-mic gives lowdef ≈ -7 vs genuine ≈ -20 —
+a real but too-weak/overlapping shift; hidef/tilt don't separate at all).
+Replay stays at ZERO fusion weight; reliable physical-access detection is
+pilot work needing an ML model on a real replay corpus (ASVspoof-PA).
+
+Bonus finding: the replayed ElevenLabs clone scored 0.05 on the deepfake
+ensemble — the air gap destroys synthesis artifacts for the PRIMARY
+detector too (NII), confirming the through-air scenario is a genuinely
+different, harder problem than digital-path detection (where NII nails it).
+
+Positive result from the same session: the deepfake ensemble on the 5
+genuine live captures produced ZERO false alarms (fused 0.05-0.11) — real-
+world confirmation on the actual capture chain.
 
 ## Auxiliary detectors + honest metrics *(2026-07-20, same session)*
 

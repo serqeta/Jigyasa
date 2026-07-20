@@ -16,12 +16,20 @@ from voiceshield.replay.detectors import (
     reverb_score,
 )
 
-# Calibrated 2026-07-20: freq_response (loudspeaker-channel composite) and
-# reverb are the detectors with measured separation on realistic channels.
-# double_compression never fires on real codecs (opus/WhatsApp keep the
-# bandwidth its cliff heuristic looks for) and background_mismatch
-# saturates on genuine speech (it measures pauses, not background) — both
-# are display-only at zero weight until rebuilt on real call recordings.
+# NOT USED IN THE VERDICT (all replay signals are display-only; the
+# module's fusion weight is 0 in config.FUSION_WEIGHTS).
+#
+# Validated 2026-07-20 on REAL recordings (5 genuine live + 4 loudspeaker
+# playbacks captured through the actual browser-mic path, eval_recordings/):
+# the DSP detectors do NOT separate real replay from genuine live audio.
+# Combined score — genuine live: 0.00-0.27; real loudspeaker: 0.00, 0.05,
+# 0.00, 0.34. Three of four real replays scored ≤0.05, below the genuine
+# ceiling. The simulation that motivated these thresholds was optimistic
+# (it assumed a large low-band deficit that real phone-into-mic playback
+# does not produce). Only lowdef showed any shift (genuine ≈ -20, replay
+# ≈ -7) — too weak and overlapping to threshold. Reliable replay/physical-
+# access detection needs an ML model trained on real replay corpora
+# (ASVspoof-PA-style), not hand-tuned DSP: tracked as pilot work.
 _WEIGHTS = {
     "reverb": 0.30,
     "freq_response": 0.70,
