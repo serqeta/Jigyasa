@@ -7,9 +7,13 @@ import soundfile as sf
 from voiceshield import config
 from voiceshield.audio.resample import resample_to_16k_mono
 
+# sounddevice is only needed for live mic capture (MicSource) and pulls in
+# the PortAudio system library. Import it lazily so FileSource — used by
+# tests, CI, and file/stream serving — never depends on it. OSError =
+# PortAudio missing; ImportError/ModuleNotFoundError = package not installed.
 try:
     import sounddevice as sd
-except OSError:
+except (OSError, ImportError):
     sd = None
 
 
