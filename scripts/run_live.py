@@ -36,12 +36,13 @@ def main() -> None:
     import uvicorn
 
     from voiceshield.api.app import create_app
-    from voiceshield.classifier import get_scorer
+    from voiceshield.classifier import get_scorers
     from voiceshield.pipeline.runner import PipelineRunner
 
     source = MicSource(device=args.device)
-    scorer = get_scorer()
-    runner = PipelineRunner(source, scorer)
+    # Live calls run the cascade: Stage 1 screens every chunk, the full
+    # ensemble engages when Stage 1 flags suspicion (plus periodic probes).
+    runner = PipelineRunner(source, ensemble=get_scorers(), cascade=True)
     app = create_app(runner)
 
     url = f"http://localhost:{args.port}"

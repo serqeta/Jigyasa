@@ -1,10 +1,12 @@
-numpy>=1.24.0
+numpy>=1.24.0,<2.5  # numba (via librosa) does not support numpy 2.5 yet
 scipy>=1.11.0
 sounddevice>=0.4.6
 soundfile>=0.12.1
 librosa>=0.10.1
 torch>=2.0.0
 torchaudio>=2.0.0
+transformers>=4.40.0
+pillow>=10.0.0
 fastapi>=0.103.0
 uvicorn>=0.23.2
 websockets>=11.0.3

@@ -30,6 +30,11 @@ const initialState = {
   lastUpdateTime: null,
   selectedEntry: null,
   filterState: 'all',
+
+  evidenceStatus: 'idle',
+  evidenceManifest: null,
+
+  micStatus: 'idle', // idle | starting | live | error
 }
 
 function reducer(state, action) {
@@ -85,6 +90,12 @@ function reducer(state, action) {
       return { ...state, selectedEntry: action.payload }
     case 'SET_FILTER_STATE':
       return { ...state, filterState: action.payload }
+    case 'SET_EVIDENCE_STATUS':
+      return { ...state, evidenceStatus: action.payload }
+    case 'SET_EVIDENCE_MANIFEST':
+      return { ...state, evidenceManifest: action.payload, evidenceStatus: 'done' }
+    case 'SET_MIC_STATUS':
+      return { ...state, micStatus: action.payload }
     case 'CLEAR_TIMELINE':
       return { ...state, entries: [], current: null, chunkCount: 0, summary: null, selectedEntry: null }
     default:
@@ -122,7 +133,7 @@ export function VoiceShieldProvider({ children }) {
   const connectWs = useCallback(() => {
     if (wsRef.current) wsRef.current.close()
     const base = stateRef.current.serverUrl
-    const wsUrl = base.replace('https://', 'wss://').replace('http://', 'ws://') + '/v1/ws/risk'
+    const wsUrl = base.replace('https://', 'wss://').replace('http://', 'ws://') + '/v2/ws/risk'
     dispatch({ type: 'SET_WS_STATUS', payload: 'connecting' })
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
@@ -140,10 +151,72 @@ export function VoiceShieldProvider({ children }) {
   }, [])
 
   useEffect(() => {
-    if (state.mode === 'stream') connectWs()
+    if (state.mode === 'stream' || state.mode === 'mic') connectWs()
     else disconnectWs()
     return disconnectWs
   }, [state.mode]) // eslint-disable-line
+
+  // Browser microphone → /v2/ws/ingest (float32 mono PCM @ 16 kHz)
+  const micRef = useRef(null)
+
+  const stopMic = useCallback(() => {
+    const m = micRef.current
+    if (m) {
+      try { m.proc.disconnect(); m.node.disconnect() } catch {}
+      try { m.stream.getTracks().forEach(t => t.stop()) } catch {}
+      try { m.ctx.close() } catch {}
+      try { m.ws.close() } catch {}
+      micRef.current = null
+    }
+    dispatch({ type: 'SET_MIC_STATUS', payload: 'idle' })
+  }, [])
+
+  const startMic = useCallback(async () => {
+    if (micRef.current) return
+    dispatch({ type: 'SET_MIC_STATUS', payload: 'starting' })
+    try {
+      // All browser audio "enhancement" off: AEC/AGC/NS are designed to make
+      // speech sound clean, which actively erases the forensic artifacts the
+      // detectors need. We want the raw capture.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      })
+      const ctx = new AudioContext()
+      const node = ctx.createMediaStreamSource(stream)
+      const proc = ctx.createScriptProcessor(4096, 1, 1)
+      const base = stateRef.current.serverUrl.replace('https://', 'wss://').replace('http://', 'ws://')
+      const ws = new WebSocket(base + '/v2/ws/ingest')
+      ws.binaryType = 'arraybuffer'
+      ws.onerror = () => dispatch({ type: 'SET_MIC_STATUS', payload: 'error' })
+
+      const TARGET_SR = 16000
+      proc.onaudioprocess = (e) => {
+        if (ws.readyState !== WebSocket.OPEN) return
+        const input = e.inputBuffer.getChannelData(0)
+        const ratio = ctx.sampleRate / TARGET_SR
+        const outLen = Math.floor(input.length / ratio)
+        const out = new Float32Array(outLen)
+        for (let i = 0; i < outLen; i++) {
+          const pos = i * ratio
+          const i0 = Math.floor(pos)
+          const i1 = Math.min(i0 + 1, input.length - 1)
+          out[i] = input[i0] + (input[i1] - input[i0]) * (pos - i0)
+        }
+        ws.send(out.buffer)
+      }
+      node.connect(proc)
+      proc.connect(ctx.destination)
+      micRef.current = { stream, ctx, node, proc, ws }
+      ws.onopen = () => dispatch({ type: 'SET_MIC_STATUS', payload: 'live' })
+    } catch {
+      dispatch({ type: 'SET_MIC_STATUS', payload: 'error' })
+      stopMic()
+    }
+  }, [stopMic])
+
+  useEffect(() => {
+    if (state.mode !== 'mic') stopMic()
+  }, [state.mode, stopMic])
 
   // Analyze file
   const analyzeFile = useCallback(async (file) => {
@@ -155,7 +228,7 @@ export function VoiceShieldProvider({ children }) {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const res = await fetch(`${stateRef.current.serverUrl}/v1/analyze`, {
+      const res = await fetch(`${stateRef.current.serverUrl}/v2/analyze`, {
         method: 'POST',
         body: formData,
         signal: controller.signal,
@@ -176,8 +249,28 @@ export function VoiceShieldProvider({ children }) {
 
   const resetState = useCallback(async () => {
     dispatch({ type: 'RESET' })
-    if (stateRef.current.mode === 'stream') {
+    if (stateRef.current.mode === 'stream' || stateRef.current.mode === 'mic') {
       try { await fetch(`${stateRef.current.serverUrl}/v1/reset`, { method: 'POST' }) } catch {}
+    }
+  }, [])
+
+  const exportEvidence = useCallback(async () => {
+    dispatch({ type: 'SET_EVIDENCE_STATUS', payload: 'exporting' })
+    try {
+      const res = await fetch(`${stateRef.current.serverUrl}/v2/evidence/export`, { method: 'POST' })
+      if (!res.ok) throw new Error(await res.text())
+      const manifest = await res.json()
+      dispatch({ type: 'SET_EVIDENCE_MANIFEST', payload: manifest })
+      // Also hand the auditor a local copy of the envelope
+      const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `voiceshield-evidence-${manifest.created_utc || Date.now()}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      dispatch({ type: 'SET_EVIDENCE_STATUS', payload: 'error' })
     }
   }, [])
 
@@ -211,7 +304,8 @@ export function VoiceShieldProvider({ children }) {
       state, dispatch,
       connectWs, disconnectWs,
       analyzeFile, cancelAnalysis,
-      resetState, exportJson, exportCsv,
+      resetState, exportJson, exportCsv, exportEvidence,
+      startMic, stopMic,
       checkHealth,
     }}>
       {children}

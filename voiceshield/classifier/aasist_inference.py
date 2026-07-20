@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 
+from voiceshield import config
+
 # AASIST-L was trained on exactly 64600 samples (≈4.04 s @ 16 kHz)
 _NB_SAMP = 64600
 
@@ -9,7 +11,8 @@ class AASISTScorer:
     """Scorer backed by a pretrained AASIST-L model."""
 
     def __init__(self, model: "torch.nn.Module"):
-        self._model = model
+        self._device = config.get_device()
+        self._model = model.to(self._device).eval()
 
     def _preprocess(self, audio: np.ndarray) -> torch.Tensor:
         n = len(audio)
@@ -17,7 +20,7 @@ class AASISTScorer:
             audio = audio[-_NB_SAMP:]
         else:
             audio = np.pad(audio, (0, _NB_SAMP - n))
-        return torch.from_numpy(audio).float().unsqueeze(0)  # (1, NB_SAMP)
+        return torch.from_numpy(audio).float().unsqueeze(0).to(self._device)  # (1, NB_SAMP)
 
     def score(self, audio: np.ndarray) -> float:
         x = self._preprocess(audio)

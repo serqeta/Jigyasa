@@ -16,6 +16,9 @@ class TimelineEntry:
     first_red_t: float | None
     speech_active: bool = True
     voiced_ratio: float = 0.0
+    component_scores: dict[str, float] | None = None
+    replay: dict[str, float] | None = None
+    stage2_active: bool = True
     spec_linear: list[list[float]] | None = None
     spec_mel: list[list[float]] | None = None
     spec_cqt: list[list[float]] | None = None

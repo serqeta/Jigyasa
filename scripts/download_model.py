@@ -1,11 +1,11 @@
 """
-Download the AASIST-L pretrained checkpoint from the clovaai/aasist repository.
+Download all pretrained checkpoints: AASIST-L (Stage 1) and the Stage 2
+ensemble models from the Hugging Face Hub.
 
 Usage:
     python scripts/download_model.py
 """
 
-import hashlib
 import os
 import sys
 import urllib.request
@@ -19,7 +19,7 @@ _URL = "https://raw.githubusercontent.com/clovaai/aasist/main/models/weights/AAS
 
 
 def download(url: str, dest: str) -> None:
-    print(f"Downloading AASIST-L checkpoint…")
+    print("Downloading AASIST-L checkpoint…")
     print(f"  Source : {url}")
     print(f"  Dest   : {dest}")
     try:
@@ -35,19 +35,32 @@ def _progress(count: int, block: int, total: int) -> None:
     print(f"\r  {pct:3d}%", end="", flush=True)
 
 
+def download_stage2_models() -> None:
+    """Snapshot the Stage 2 ensemble checkpoints into config.HF_CACHE_DIR."""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from huggingface_hub import snapshot_download
+
+    from voiceshield import config
+
+    for name, spec in config.HF_SCORERS.items():
+        print(f"Fetching Stage 2 '{name}' checkpoint: {spec['model_id']} …")
+        path = snapshot_download(spec["model_id"], cache_dir=config.HF_CACHE_DIR)
+        print(f"  → {path}")
+
+
 def main() -> None:
     os.makedirs(MODELS_DIR, exist_ok=True)
 
     if os.path.exists(MODEL_PATH):
         size_kb = os.path.getsize(MODEL_PATH) / 1024
         print(f"Model already present: {MODEL_PATH} ({size_kb:.0f} KB)")
-        return
+    else:
+        print("Fetching AASIST-L checkpoint (clovaai/aasist, MIT License)…\n")
+        download(_URL, MODEL_PATH)
+        size_kb = os.path.getsize(MODEL_PATH) / 1024
+        print(f"Saved {size_kb:.0f} KB → {MODEL_PATH}")
 
-    print("Fetching AASIST-L checkpoint (clovaai/aasist, MIT License)…\n")
-    download(_URL, MODEL_PATH)
-
-    size_kb = os.path.getsize(MODEL_PATH) / 1024
-    print(f"Saved {size_kb:.0f} KB → {MODEL_PATH}")
+    download_stage2_models()
     print("\nDone. Run:  python scripts/run_live.py")
 
 

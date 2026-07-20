@@ -69,3 +69,37 @@ def test_first_amber_latched_before_red():
     eng.update(0.40, GateState.NORMAL, 1.0)
     assert eng.first_amber_t == 1.0
     assert eng.first_red_t is None
+
+
+def test_grey_wins_even_after_amber():
+    """Silence after AMBER must display GREY, not hold AMBER (spec T7.1)."""
+    eng = StateEngine()
+    eng.update(0.50, GateState.NORMAL, 0.5)
+    assert eng.update(0.50, GateState.NORMAL, 1.0) is RiskState.AMBER
+    assert eng.update(0.00, GateState.GREY, 1.5) is RiskState.GREY
+    assert eng.update(0.00, GateState.GREY, 2.0) is RiskState.GREY
+
+
+def test_grey_preserves_escalation_for_resume():
+    """Suspicion survives a silent stretch: speech resuming suspicious
+    continues from AMBER (with hysteresis), and first_amber_t stays latched."""
+    eng = StateEngine()
+    eng.update(0.50, GateState.NORMAL, 0.5)
+    eng.update(0.50, GateState.NORMAL, 1.0)          # AMBER
+    eng.update(0.00, GateState.GREY, 1.5)            # silence → GREY
+    first_amber = eng.first_amber_t
+    eng.update(0.75, GateState.NORMAL, 2.0)
+    state = eng.update(0.75, GateState.NORMAL, 2.5)  # 2 red-scoring chunks
+    assert state is RiskState.RED                    # resumed from AMBER
+    assert eng.first_amber_t == first_amber
+
+
+def test_grey_never_escalates():
+    """No chunk processed under a GREY gate may raise the risk state."""
+    eng = StateEngine()
+    eng.update(0.50, GateState.NORMAL, 0.5)
+    eng.update(0.50, GateState.NORMAL, 1.0)          # AMBER
+    for i in range(6):
+        state = eng.update(0.99, GateState.GREY, 1.5 + i * 0.5)
+        assert state is RiskState.GREY
+    assert eng.first_red_t is None

@@ -1,8 +1,6 @@
 import librosa
 import numpy as np
 
-from voiceshield import config
-
 
 def compute_spectral_flux(audio: np.ndarray) -> float:
     """

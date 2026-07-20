@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useVoiceShield } from '../context/VoiceShieldContext.jsx'
 import Sparkline from './Sparkline.jsx'
+import EnsemblePanel from './EnsemblePanel.jsx'
 
 function SpectrogramHeatmap({ matrix, endTime }) {
   const canvasRef = useRef(null)
@@ -400,6 +401,9 @@ export default function RiskDisplay() {
           <MetaRow label="First RED" value={entry.first_red_t != null ? `${entry.first_red_t.toFixed(2)} s` : '—'} mono />
         </div>
       </div>
+
+      {/* Stage 2 ensemble breakdown */}
+      <EnsemblePanel entry={entry} />
 
       {/* Sparkline */}
       <div style={card}>

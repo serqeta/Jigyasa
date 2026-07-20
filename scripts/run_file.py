@@ -1,8 +1,10 @@
 """
-Feed a WAV file through the VoiceShield Stage 1 pipeline and serve the dashboard.
+Feed a WAV file through the VoiceShield pipeline and serve the dashboard.
+Runs the full Stage 2 ensemble by default; --stage1 restricts to the
+single Stage 1 scorer.
 
 Usage:
-    python scripts/run_file.py <wav_path> [--port 8000] [--fallback]
+    python scripts/run_file.py <wav_path> [--port 8000] [--fallback] [--stage1]
 """
 
 import argparse
@@ -19,6 +21,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--fallback", action="store_true",
                         help="Force rule-based fallback classifier")
+    parser.add_argument("--stage1", action="store_true",
+                        help="Stage 1 single-scorer mode (skip the ensemble)")
     args = parser.parse_args()
 
     if not os.path.exists(args.wav):
@@ -33,12 +37,15 @@ def main() -> None:
 
     from voiceshield.api.app import create_app
     from voiceshield.audio.source import FileSource
-    from voiceshield.classifier import get_scorer
+    from voiceshield.classifier import get_scorer, get_scorers
     from voiceshield.pipeline.runner import PipelineRunner
 
     source = FileSource(args.wav)
-    scorer = get_scorer()
-    runner = PipelineRunner(source, scorer)
+    if args.stage1:
+        runner = PipelineRunner(source, get_scorer())
+    else:
+        # File-fed serving simulates a live call → same cascade as run_live
+        runner = PipelineRunner(source, ensemble=get_scorers(), cascade=True)
     app = create_app(runner)
 
     url = f"http://localhost:{args.port}"

@@ -15,7 +15,7 @@ from voiceshield.features.scalars import compute_suspicion_features
 from voiceshield.features.snr import compute_gate_decision, estimate_snr
 from voiceshield.features.vad import compute_vad
 from voiceshield.logger import StructuredLogger
-from voiceshield.pipeline.state_engine import StateEngine
+from voiceshield.pipeline.state_engine import StateEngine, fuse_scores
 from voiceshield.pipeline.timeline import Timeline, TimelineEntry
 
 
@@ -77,10 +77,35 @@ class PipelineRunner:
     Scorer → StateEngine → Timeline.
     """
 
-    def __init__(self, source: AudioSource, scorer: Scorer) -> None:
-        self._source = source
-        self._scorer = scorer
+    def __init__(
+        self,
+        source: AudioSource,
+        scorer: Scorer | None = None,
+        ensemble: dict[str, Scorer] | None = None,
+        cascade: bool = False,
+    ) -> None:
+        """
+        Single-scorer mode (Stage 1, `scorer=`) and ensemble mode
+        (Stage 2, `ensemble=` from classifier.get_scorers()) share one
+        code path: a lone scorer becomes the "stage1" component and the
+        fusion of one component is the score itself.
+
+        cascade=True (live streaming): only the "stage1" component scores
+        every chunk; the rest of the ensemble engages when stage1 crosses
+        config.CASCADE_TRIGGER (plus a periodic deep probe) and disengages
+        after config.CASCADE_COOLDOWN_CHUNKS clean chunks.
+        """
+        if ensemble is None:
+            if scorer is None:
+                raise ValueError("PipelineRunner needs a scorer or an ensemble")
+            ensemble = {"stage1": scorer}
+        self._ensemble = ensemble
+        self._cascade = cascade and len(ensemble) > 1
+        self._stage2_active = False
+        self._cascade_clean = 0
+        self._chunks_since_probe = 0
         self._buffer = RollingBuffer()
+        self._source = source
         self._state_engine = StateEngine()
         self._timeline = Timeline()
         self._log = StructuredLogger("voiceshield.runner")
@@ -90,8 +115,40 @@ class PipelineRunner:
         return self._timeline
 
     @property
+    def buffer(self) -> RollingBuffer:
+        return self._buffer
+
+    @property
+    def source(self) -> AudioSource:
+        return self._source
+
+    @property
     def state_engine(self) -> StateEngine:
         return self._state_engine
+
+    def _should_run_deep(self, stage1_score: float) -> bool:
+        """Cascade gate: deep-scan when engaged, when Stage 1 flags
+        suspicion, or on the periodic probe that guards against Stage 1
+        under-scoring a clone."""
+        if self._stage2_active or stage1_score >= config.CASCADE_TRIGGER:
+            self._chunks_since_probe = 0
+            return True
+        self._chunks_since_probe += 1
+        if self._chunks_since_probe >= config.CASCADE_PROBE_EVERY:
+            self._chunks_since_probe = 0
+            return True
+        return False
+
+    def _update_cascade(self, fused: float) -> None:
+        """Engage on suspicious fused score; disengage after sustained clean."""
+        if fused >= config.SCORE_AMBER:
+            self._stage2_active = True
+            self._cascade_clean = 0
+        elif self._stage2_active:
+            self._cascade_clean += 1
+            if self._cascade_clean >= config.CASCADE_COOLDOWN_CHUNKS:
+                self._stage2_active = False
+                self._cascade_clean = 0
 
     def run_once(self) -> TimelineEntry:
         """Process one 500 ms chunk and return the resulting TimelineEntry."""
@@ -110,34 +167,67 @@ class PipelineRunner:
         if len(audio_win) == 0:
             audio_win = chunk
 
-        # speech_active is derived purely from the SNR gate.
-        # The SNR estimator (95th–10th percentile spread) already discriminates
-        # speech from silence reliably; a frame-level VAD can't reliably add
-        # signal because a window full of speech has no clean noise-floor estimate.
-        # voiced_ratio is kept as a logged diagnostic only.
+        # speech_active requires BOTH signals:
+        # - SNR gate (1 s window) — discriminates speech from silence/noise, but
+        #   lags up to 1 s after speech stops because its window still holds
+        #   speech energy.
+        # - chunk-level VAD on the newest 500 ms — silence there means no NEW
+        #   evidence arrived, so scoring the (stale) 4 s window would just
+        #   re-judge old audio and could escalate the state during silence.
         voiced_ratio = _voiced_ratio(audio_win)
-        speech_active = gate != GateState.GREY
+        chunk_voiced = _voiced_ratio(chunk)
+        speech_active = gate != GateState.GREY and chunk_voiced >= config.MIN_VOICED_RATIO
 
-        from voiceshield.classifier.fallback import FallbackScorer
+        component_scores: dict[str, float] = {}
+        replay_result = None
 
         if not speech_active:
             score = 0.0
             artifact = None
         else:
-            # Extract features once; FallbackScorer reuses them, AASIST uses raw audio
+            # Extract features once; rule-based scorers reuse them, neural
+            # scorers consume raw audio.
             features = _extract_features(audio_win)
-            if isinstance(self._scorer, FallbackScorer):
-                score = self._scorer.score_from_features(features)
-            else:
-                score = self._scorer.score(audio_win)
+
+            def _component(scorer: Scorer) -> float:
+                if hasattr(scorer, "score_from_features"):
+                    return scorer.score_from_features(features)
+                return scorer.score(audio_win)
+
+            # Screen with stage1 when present; an ensemble without a
+            # screener always deep-scans (screen score 1.0 ≥ any trigger).
+            screener = self._ensemble.get("stage1")
+            if screener is not None:
+                component_scores["stage1"] = _component(screener)
+            screen_score = component_scores.get("stage1", 1.0)
+
+            run_deep = not self._cascade or self._should_run_deep(screen_score)
+            if run_deep:
+                for name, scorer in self._ensemble.items():
+                    if name not in component_scores:
+                        component_scores[name] = _component(scorer)
+                if config.ENABLE_REPLAY_DETECTION:
+                    from voiceshield.replay import detect_replay
+
+                    replay_result = detect_replay(audio_win)
+                    component_scores["replay"] = replay_result.score
+
+            score = fuse_scores(component_scores)
+            # Weak-evidence scaling: mostly-silent windows (speech onsets)
+            # make the SSL models spike; evidence grows with voiced content.
+            score *= min(1.0, voiced_ratio / config.EVIDENCE_FULL_VOICED_RATIO)
+            if self._cascade and run_deep:
+                self._update_cascade(score)
             artifact = top_artifact_name(features)
 
-        # State engine
-        risk_state = self._state_engine.update(score, gate, t_end)
+        # State engine sees GREY whenever there is no fresh speech, whatever
+        # the SNR gate said — silence must read GREY, never held/escalated risk.
+        effective_gate = gate if speech_active else GateState.GREY
+        risk_state = self._state_engine.update(score, effective_gate, t_end)
 
-        # Skip expensive visual extraction on GREY frames (no usable speech).
+        # Skip expensive visual extraction when no fresh speech arrived.
         # REDUCED-gate frames still carry real speech and get visuals.
-        if gate != GateState.GREY:
+        if speech_active:
             visuals = _extract_rich_visuals(audio_win)
         else:
             visuals = {
@@ -156,6 +246,9 @@ class PipelineRunner:
             top_artifact=artifact,
             speech_active=speech_active,
             voiced_ratio=round(voiced_ratio, 3),
+            component_scores={k: round(v, 4) for k, v in component_scores.items()},
+            replay=replay_result.to_dict() if replay_result else None,
+            stage2_active=(not self._cascade) or self._stage2_active,
             first_amber_t=self._state_engine.first_amber_t,
             first_red_t=self._state_engine.first_red_t,
             spec_linear=visuals["spec_linear"],
@@ -191,6 +284,9 @@ class PipelineRunner:
                 break
 
     def reset(self) -> None:
-        """Reset the state engine and timeline for a fresh analysis."""
+        """Reset the state engine, timeline, and cascade for a fresh analysis."""
         self._state_engine = StateEngine()
         self._timeline = Timeline()
+        self._stage2_active = False
+        self._cascade_clean = 0
+        self._chunks_since_probe = 0

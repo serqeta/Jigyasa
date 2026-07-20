@@ -23,3 +23,7 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# deck generator: compact shape-styling statements are fine there
+"scripts/build_deck.py" = ["E701", "E702"]

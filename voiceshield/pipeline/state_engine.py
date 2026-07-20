@@ -1,3 +1,4 @@
+from voiceshield import config
 from voiceshield.classifier.protocol import RiskState
 from voiceshield.classifier.state_mapper import score_to_state
 from voiceshield.features import GateState
@@ -35,14 +36,15 @@ class StateEngine:
         self._current: RiskState = RiskState.GREEN
 
     def update(self, score: float, gate: GateState, t_end: float) -> RiskState:
-        # Grey gate: no speech or poor SNR — pause scoring, hold current state
-        # if already escalated, reset counters but don't de-escalate.
+        # Grey gate: no speech or poor SNR — GREY wins regardless of score
+        # or prior escalation (spec T7.1). Internal state and first-alert
+        # latches are preserved, so when speech resumes hysteresis continues
+        # from where it left off (an earlier AMBER isn't forgotten), but the
+        # display never claims risk while there is nothing to analyze.
         if gate is GateState.GREY:
             self._consec_suspicious = 0
             self._consec_red = 0
             self._consec_clean = 0
-            if self._current in (RiskState.AMBER, RiskState.RED):
-                return self._current
             return RiskState.GREY
 
         # Instant RED at very high single-chunk confidence
@@ -97,9 +99,41 @@ def compute_final(
     component_scores: dict[str, float],
     gate: GateState,
 ) -> RiskState:
-    """Stage 2 hand-off seam. Stage 1 calls with {"stage1": score}."""
+    """Map fused component scores to a risk state. GREY gate wins outright."""
     if gate is GateState.GREY:
         return RiskState.GREY
     if not component_scores:
         return RiskState.GREEN
-    return score_to_state(max(component_scores.values()))
+    return score_to_state(fuse_scores(component_scores))
+
+
+def fuse_scores(component_scores: dict[str, float]) -> float:
+    """
+    Stage 2 risk fusion: weighted mean over the components present, with
+    weights from config.FUSION_WEIGHTS renormalized so missing components
+    never dilute the result. Components without a configured weight share
+    the mean of the configured weights, keeping the fusion
+    score-source-agnostic per the Stage-2 hand-off contract.
+
+    The result is floored by the peak-evidence rule: when one of the
+    validated high-precision detectors (config.PEAK_COMPONENTS) is highly
+    confident, averaging must not wash that evidence out.
+    """
+    if not component_scores:
+        return 0.0
+
+    configured = config.FUSION_WEIGHTS
+    default_w = sum(configured.values()) / max(len(configured), 1)
+    weights = {k: configured.get(k, default_w) for k in component_scores}
+    total = sum(weights.values())
+    if total <= 0.0:
+        return 0.0
+    fused = sum(weights[k] * component_scores[k] for k in component_scores) / total
+
+    peak = max(
+        (factor * component_scores[k] for k, factor in config.PEAK_COMPONENTS.items()
+         if k in component_scores),
+        default=0.0,
+    )
+    fused = max(fused, peak)
+    return float(min(max(fused, 0.0), 1.0))

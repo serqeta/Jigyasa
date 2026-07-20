@@ -68,6 +68,11 @@ def genuine_male_wav():
 
 
 @pytest.fixture
+def genuine_female_wav():
+    return _real("genuine_female_16k.wav")
+
+
+@pytest.fixture
 def tts_synthetic_wav():
     return _real("tts_synthetic_16k.wav")
 

@@ -67,7 +67,7 @@ function Section({ title, children }) {
 }
 
 export default function SourcePanel() {
-  const { state, dispatch, analyzeFile, cancelAnalysis, connectWs, disconnectWs, resetState } = useVoiceShield()
+  const { state, dispatch, analyzeFile, cancelAnalysis, connectWs, disconnectWs, resetState, exportEvidence, startMic, stopMic } = useVoiceShield()
   const fileRef = useRef(null)
   const [dragging, setDragging] = useState(false)
 
@@ -92,17 +92,17 @@ export default function SourcePanel() {
       {/* Mode toggle */}
       <Section title="Source Mode">
         <div style={{ display: 'flex', gap: 0, border: '1px solid var(--color-mist-divider)', borderRadius: 8, overflow: 'hidden' }}>
-          {['file', 'stream'].map((m, i) => (
+          {['file', 'stream', 'mic'].map((m, i) => (
             <button key={m}
               onClick={() => dispatch({ type: 'SET_MODE', payload: m })}
               style={{
                 flex: 1, padding: '6px 0', border: 'none',
-                borderRight: i === 0 ? '1px solid var(--color-mist-divider)' : 'none',
+                borderRight: i < 2 ? '1px solid var(--color-mist-divider)' : 'none',
                 background: state.mode === m ? 'var(--color-ink-black)' : 'var(--color-paper-white)',
                 color: state.mode === m ? '#fff' : 'var(--color-fog-text)',
-                fontSize: 13, fontWeight: state.mode === m ? 600 : 400, cursor: 'pointer',
+                fontSize: 12, fontWeight: state.mode === m ? 600 : 400, cursor: 'pointer',
               }}
-            >{m === 'file' ? 'File Upload' : 'Live Stream'}</button>
+            >{m === 'file' ? 'File' : m === 'stream' ? 'Stream' : 'Microphone'}</button>
           ))}
         </div>
       </Section>
@@ -174,6 +174,61 @@ export default function SourcePanel() {
           </button>
           {state.entries.length > 0 && (
             <button style={ghostBtn(false)} onClick={resetState}>↺  Reset engine</button>
+          )}
+          {wsConnected && state.entries.length > 0 && (
+            <>
+              <button
+                style={ghostBtn(state.evidenceStatus === 'exporting')}
+                disabled={state.evidenceStatus === 'exporting'}
+                onClick={exportEvidence}
+              >
+                {state.evidenceStatus === 'exporting' ? '⌛ Packaging…' : '⬇  Save evidence (audit)'}
+              </button>
+              {state.evidenceStatus === 'done' && state.evidenceManifest && (
+                <div style={{ fontSize: 10, color: 'var(--color-fog-text)', marginTop: 4, fontFamily: 'var(--font-mono)', lineHeight: 1.5, wordBreak: 'break-all' }}>
+                  saved → {state.evidenceManifest.package_dir}
+                </div>
+              )}
+              {state.evidenceStatus === 'error' && (
+                <div style={{ fontSize: 10, color: '#b91c1c', marginTop: 4 }}>
+                  Evidence export failed — is the live pipeline running?
+                </div>
+              )}
+            </>
+          )}
+        </Section>
+      )}
+
+      {/* Microphone mode */}
+      {state.mode === 'mic' && (
+        <Section title="Browser Microphone">
+          <div style={{ fontSize: 12, color: 'var(--color-fog-text)', marginBottom: 10, lineHeight: 1.6 }}>
+            Captures your voice in the browser and streams it to the cascade
+            pipeline. Start the server with{' '}
+            <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11, background: 'var(--color-cream-surface)', padding: '1px 4px', borderRadius: 3 }}>run_browser.py</code>.
+          </div>
+
+          <div style={pill(state.micStatus === 'live' ? 'done' : state.micStatus === 'error' ? 'error' : state.micStatus === 'starting' ? 'analyzing' : 'idle')}>
+            {state.micStatus === 'live' ? '● Mic live — speak now'
+              : state.micStatus === 'starting' ? '⌛ Requesting mic…'
+              : state.micStatus === 'error' ? '✗ Mic unavailable (permissions? server mode?)'
+              : '○ Mic off'}
+          </div>
+
+          <button style={primaryBtn(false)} onClick={state.micStatus === 'live' ? stopMic : startMic}>
+            {state.micStatus === 'live' ? '■  Stop microphone' : '🎙  Start microphone'}
+          </button>
+          {state.entries.length > 0 && (
+            <button style={ghostBtn(false)} onClick={resetState}>↺  Reset engine</button>
+          )}
+          {wsConnected && state.entries.length > 0 && (
+            <button
+              style={ghostBtn(state.evidenceStatus === 'exporting')}
+              disabled={state.evidenceStatus === 'exporting'}
+              onClick={exportEvidence}
+            >
+              {state.evidenceStatus === 'exporting' ? '⌛ Packaging…' : '⬇  Save evidence (audit)'}
+            </button>
           )}
         </Section>
       )}
