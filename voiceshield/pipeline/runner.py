@@ -214,9 +214,7 @@ class PipelineRunner:
             # legacy "stage1" slot); an ensemble without a screener always
             # deep-scans (screen score 1.0 ≥ any trigger).
             screen_name = (
-                config.CASCADE_SCREENER
-                if config.CASCADE_SCREENER in self._ensemble
-                else "stage1"
+                config.CASCADE_SCREENER if config.CASCADE_SCREENER in self._ensemble else "stage1"
             )
             screener = self._ensemble.get(screen_name)
             if screener is not None:

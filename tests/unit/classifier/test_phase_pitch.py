@@ -31,12 +31,8 @@ def test_flat_pitch_more_suspicious_than_modulated():
 
 def test_score_from_features_used_by_runner():
     scorer = PhasePitchScorer()
-    high = scorer.score_from_features(
-        {"phase_discontinuity": 0.9, "pitch_smoothness_inv": 0.99}
-    )
-    low = scorer.score_from_features(
-        {"phase_discontinuity": 0.1, "pitch_smoothness_inv": 0.2}
-    )
+    high = scorer.score_from_features({"phase_discontinuity": 0.9, "pitch_smoothness_inv": 0.99})
+    low = scorer.score_from_features({"phase_discontinuity": 0.1, "pitch_smoothness_inv": 0.2})
     assert high > low
     assert high > 0.9
     assert low == 0.0

@@ -26,6 +26,7 @@ class HFScorer:
         self._spoof_label = spoof_label
         self._device = config.get_device()
         self._torch = torch
+
         def _load(local_only: bool):
             kwargs = {"cache_dir": config.HF_CACHE_DIR, "local_files_only": local_only}
             return (
@@ -56,9 +57,7 @@ class HFScorer:
             return_tensors="pt",
         ).to(self._device)
         if self._half:
-            inputs = {
-                k: v.half() if torch.is_floating_point(v) else v for k, v in inputs.items()
-            }
+            inputs = {k: v.half() if torch.is_floating_point(v) else v for k, v in inputs.items()}
         with torch.no_grad():
             logits = self._model(**inputs).logits
             probs = torch.softmax(logits.float(), dim=-1)

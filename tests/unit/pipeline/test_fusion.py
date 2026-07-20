@@ -41,8 +41,9 @@ def test_peak_evidence_floor():
 def test_missing_components_renormalize():
     # A missing model must not dilute: all-ones stays 1.0 for any subset.
     assert fuse_scores({"stage1": 1.0, "phase_pitch": 1.0}) == pytest.approx(1.0)
-    assert fuse_scores({"stage1": 1.0, "ssl": 1.0, "spec": 1.0, "wavlm": 1.0,
-                        "phase_pitch": 1.0, "replay": 1.0}) == pytest.approx(1.0)
+    assert fuse_scores(
+        {"stage1": 1.0, "ssl": 1.0, "spec": 1.0, "wavlm": 1.0, "phase_pitch": 1.0, "replay": 1.0}
+    ) == pytest.approx(1.0)
 
 
 def test_unknown_component_gets_default_weight():

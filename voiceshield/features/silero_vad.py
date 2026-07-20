@@ -56,8 +56,6 @@ def voiced_ratio(audio: np.ndarray) -> float:
     if len(audio) < 512:
         return 0.0
     wav = torch.from_numpy(np.ascontiguousarray(audio, dtype=np.float32))
-    ts = get_speech_timestamps(
-        wav, model, sampling_rate=config.SAMPLE_RATE, threshold=0.5
-    )
+    ts = get_speech_timestamps(wav, model, sampling_rate=config.SAMPLE_RATE, threshold=0.5)
     speech = sum(t["end"] - t["start"] for t in ts)
     return float(min(1.0, speech / len(audio)))

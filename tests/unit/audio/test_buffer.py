@@ -21,6 +21,7 @@ def test_b2_1_buffer_capacity():
     buf.push(chunk2)
     assert buf.size() == 160000
 
+
 def test_b2_2_timestamps():
     """TEST-B2.2: Timestamps are monotonic and contiguous."""
     buf = RollingBuffer()
@@ -33,6 +34,7 @@ def test_b2_2_timestamps():
         assert np.isclose(t_start, prev_end)
         assert np.isclose(t_end, t_start + (config.CHUNK_MS / 1000.0))
         prev_end = t_end
+
 
 def test_b2_3_latest_seconds():
     """TEST-B2.3: latest_seconds returns correct sizes."""

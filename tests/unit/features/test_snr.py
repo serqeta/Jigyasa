@@ -24,6 +24,7 @@ def test_q3_2_snr_estimation():
     snr_clean = estimate_snr(clean_speech)
     assert snr_clean >= 15.0
 
+
 def test_q3_3_gate_decision():
     """TEST-Q3.3: Gate maps {15: NORMAL, 10: REDUCED, 5: GREY}"""
     assert compute_gate_decision(15.0) == GateState.NORMAL

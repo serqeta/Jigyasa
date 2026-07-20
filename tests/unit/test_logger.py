@@ -17,6 +17,7 @@ def test_logger_emits_json():
 
     # Needs to use the JSONFormatter that gets attached in get_logger
     from voiceshield.logger import JSONFormatter
+
     handler.setFormatter(JSONFormatter())
 
     struct_logger = StructuredLogger("test_module", run_id="test_run_123")

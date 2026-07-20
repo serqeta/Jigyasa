@@ -22,8 +22,10 @@ import soundfile as sf
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 SR = 16000
-ROWS = ("https://datasets-server.huggingface.co/rows?dataset=google/fleurs"
-        "&config=hi_in&split=validation&offset={off}&length={n}")
+ROWS = (
+    "https://datasets-server.huggingface.co/rows?dataset=google/fleurs"
+    "&config=hi_in&split=validation&offset={off}&length={n}"
+)
 
 # Hindi banking/fraud-scenario sentences (Devanagari)
 SENTENCES = [
@@ -66,8 +68,9 @@ def fetch_genuine(out_dir, n_total):
                 audio = librosa.resample(audio.astype(np.float32), orig_sr=sr, target_sr=SR)
             if len(audio) < 4 * SR:
                 continue
-            sf.write(os.path.join(out_dir, f"fleurs_hi_{r['id']}.wav"),
-                     audio.astype(np.float32), SR)
+            sf.write(
+                os.path.join(out_dir, f"fleurs_hi_{r['id']}.wav"), audio.astype(np.float32), SR
+            )
             saved += 1
         off += 50
     print(f"  hindi genuine: {saved} FLEURS clips")
@@ -81,8 +84,9 @@ def build_fakes(out_dir):
 
     device = config.get_device()
     tok = AutoTokenizer.from_pretrained("facebook/mms-tts-hin", cache_dir=config.HF_CACHE_DIR)
-    model = VitsModel.from_pretrained("facebook/mms-tts-hin",
-                                      cache_dir=config.HF_CACHE_DIR).to(device)
+    model = VitsModel.from_pretrained("facebook/mms-tts-hin", cache_dir=config.HF_CACHE_DIR).to(
+        device
+    )
     n = 0
     for i, text in enumerate(SENTENCES):
         inputs = tok(text, return_tensors="pt")

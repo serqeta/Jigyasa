@@ -143,8 +143,7 @@ async def watermark_check(file: UploadFile = File(...)) -> JSONResponse:
 
             audio, _ = librosa.load(tmp_path, sr=config.SAMPLE_RATE, mono=True)
             prob = watermark_probability(np.asarray(audio, dtype="float32"))
-            return {"watermark_probability": round(prob, 4),
-                    "watermarked": prob >= 0.5}
+            return {"watermark_probability": round(prob, 4), "watermarked": prob >= 0.5}
 
         return JSONResponse(await loop.run_in_executor(None, _check))
     finally:

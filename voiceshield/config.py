@@ -17,7 +17,7 @@ SNR_GREY_DB = 8.0
 # A window with too few voiced frames is scored 0.0 (nothing to analyze)
 # rather than letting silence masquerade as a synthetic artifact.
 VAD_THRESHOLD_DB = -40.0  # frame energy above this counts as speech (fallback)
-MIN_VOICED_RATIO = 0.20   # require >=20% voiced frames in the window to score
+MIN_VOICED_RATIO = 0.20  # require >=20% voiced frames in the window to score
 
 # Neural VAD (Silero, MIT ~2 MB). Robust in noise where the energy
 # threshold fails — measured 2026-07-20: energy VAD reads pure noise as
@@ -152,9 +152,9 @@ EVIDENCE_FULL_VOICED_RATIO = 0.5
 # clones (0.165 mean on the cloned fixture), a periodic deep probe runs
 # the full ensemble even while screening, bounding the worst-case
 # detection delay to PROBE_EVERY chunks.
-CASCADE_TRIGGER = SCORE_AMBER       # stage1 score that engages Stage 2
-CASCADE_COOLDOWN_CHUNKS = 4         # clean fused chunks before disengaging
-CASCADE_PROBE_EVERY = 4             # deep-probe cadence (chunks) while screening
+CASCADE_TRIGGER = SCORE_AMBER  # stage1 score that engages Stage 2
+CASCADE_COOLDOWN_CHUNKS = 4  # clean fused chunks before disengaging
+CASCADE_PROBE_EVERY = 4  # deep-probe cadence (chunks) while screening
 
 # AI-watermark detection (Meta AudioSeal, MIT) is NOT in the real-time
 # pipeline — at ~150 ms/chunk it is too heavy for a signal that reads ~0 on
@@ -167,9 +167,9 @@ CASCADE_PROBE_EVERY = 4             # deep-probe cadence (chunks) while screenin
 # takeover / splice) — orthogonal to synthetic detection. Advisory signal
 # surfaced in the timeline, not fused into the spoof score.
 ENABLE_SPEAKER_DRIFT = True
-SPEAKER_REF_WINDOWS = 4          # windows to fix the reference voice (stable mean)
+SPEAKER_REF_WINDOWS = 4  # windows to fix the reference voice (stable mean)
 SPEAKER_DRIFT_THRESHOLD = 0.65  # cosine distance: within-speaker p95 0.61, cross-speaker p5 0.70
-SPEAKER_DRIFT_CONSEC = 2        # consecutive high-drift windows to latch "changed"
+SPEAKER_DRIFT_CONSEC = 2  # consecutive high-drift windows to latch "changed"
 
 # Evidence export (privacy: written ONLY on explicit API request, never
 # automatically — G10).

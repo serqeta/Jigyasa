@@ -66,13 +66,19 @@ def build_genuine(out_dir):
     import pandas as pd
     from huggingface_hub import hf_hub_download
 
-    pq = hf_hub_download("openslr/librispeech_asr", "clean/validation/0000.parquet",
-                         repo_type="dataset", revision="refs/convert/parquet")
+    pq = hf_hub_download(
+        "openslr/librispeech_asr",
+        "clean/validation/0000.parquet",
+        repo_type="dataset",
+        revision="refs/convert/parquet",
+    )
     df = pd.read_parquet(pq)
     n = 0
     for spk, grp in df.groupby("speaker_id"):
-        clips = [sf.read(io.BytesIO(r["audio"]["bytes"]), dtype="float32")[0]
-                 for _, r in grp.head(10).iterrows()]
+        clips = [
+            sf.read(io.BytesIO(r["audio"]["bytes"]), dtype="float32")[0]
+            for _, r in grp.head(10).iterrows()
+        ]
         if sum(len(c) for c in clips) < TARGET_SECONDS * SR:
             continue
         sf.write(os.path.join(out_dir, f"libri_{spk}.wav"), _assemble(clips), SR)
@@ -80,6 +86,7 @@ def build_genuine(out_dir):
     print(f"  genuine: {n} LibriSpeech speakers")
 
     import urllib.request
+
     for spk in ["bdl", "slt"]:
         pieces, total, i = [], 0.0, 1
         while total < TARGET_SECONDS and i < 40:
@@ -104,22 +111,28 @@ def build_speecht5(out_dir):
     processor = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts")
     model = SpeechT5ForTextToSpeech.from_pretrained("microsoft/speecht5_tts").to(device)
     vocoder = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan").to(device)
-    pq = hf_hub_download("Matthijs/cmu-arctic-xvectors", "default/validation/0000.parquet",
-                         repo_type="dataset", revision="refs/convert/parquet")
+    pq = hf_hub_download(
+        "Matthijs/cmu-arctic-xvectors",
+        "default/validation/0000.parquet",
+        repo_type="dataset",
+        revision="refs/convert/parquet",
+    )
     xv = pd.read_parquet(pq)
 
     for spk in ["bdl", "slt", "rms", "clb", "ksp"]:
         vecs = xv[xv["filename"].str.contains(spk)]["xvector"].tolist()
-        emb = torch.tensor(np.mean(np.asarray(vecs), axis=0),
-                           dtype=torch.float32).unsqueeze(0).to(device)
+        emb = (
+            torch.tensor(np.mean(np.asarray(vecs), axis=0), dtype=torch.float32)
+            .unsqueeze(0)
+            .to(device)
+        )
         chunks = []
         for text in SENTENCES:
             inp = processor(text=text, return_tensors="pt").to(device)
             with torch.no_grad():
                 speech = model.generate_speech(inp["input_ids"], emb, vocoder=vocoder)
             chunks.append(speech.cpu().numpy())
-        sf.write(os.path.join(out_dir, f"speecht5_{spk}.wav"),
-                 _assemble(chunks, gap_s=0.3), SR)
+        sf.write(os.path.join(out_dir, f"speecht5_{spk}.wav"), _assemble(chunks, gap_s=0.3), SR)
     print("  fake: 5 SpeechT5 voice clones")
 
 
@@ -131,8 +144,9 @@ def build_vits(out_dir):
 
     device = config.get_device()
     tok = AutoTokenizer.from_pretrained("facebook/mms-tts-eng", cache_dir=config.HF_CACHE_DIR)
-    model = VitsModel.from_pretrained("facebook/mms-tts-eng",
-                                      cache_dir=config.HF_CACHE_DIR).to(device)
+    model = VitsModel.from_pretrained("facebook/mms-tts-eng", cache_dir=config.HF_CACHE_DIR).to(
+        device
+    )
     chunks = []
     for text in SENTENCES:
         inp = tok(text, return_tensors="pt").to(device)
@@ -162,10 +176,26 @@ def codec_variants(src_dir, dst_dir):
         base = os.path.basename(wav)
         tmp = os.path.join(dst_dir, base + ".opus")
         out = os.path.join(dst_dir, base)
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", wav,
-                        "-c:a", "libopus", "-b:a", "16k", tmp], check=True)
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", tmp,
-                        "-ar", str(SR), "-ac", "1", out], check=True)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                wav,
+                "-c:a",
+                "libopus",
+                "-b:a",
+                "16k",
+                tmp,
+            ],
+            check=True,
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", tmp, "-ar", str(SR), "-ac", "1", out],
+            check=True,
+        )
         os.unlink(tmp)
         n += 1
     print(f"  codec variants: {n} in {os.path.basename(dst_dir)}")

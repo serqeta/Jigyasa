@@ -54,7 +54,8 @@ def convert_key(k: str) -> str | None:
 
 def main() -> None:
     path = hf_hub_download(
-        "nii-yamagishilab/mms-300m-anti-deepfake", "model.safetensors",
+        "nii-yamagishilab/mms-300m-anti-deepfake",
+        "model.safetensors",
         cache_dir="models/hf",
     )
     sd = load_file(path)
@@ -68,7 +69,7 @@ def main() -> None:
         if not k.startswith("m_ssl.model."):
             skipped.append(k)
             continue
-        nk = convert_key(k[len("m_ssl.model."):])
+        nk = convert_key(k[len("m_ssl.model.") :])
         if nk is not None:
             w2v[nk] = v
 
@@ -78,16 +79,24 @@ def main() -> None:
     from transformers import Wav2Vec2Config, Wav2Vec2Model
 
     cfg = Wav2Vec2Config(
-        hidden_size=1024, num_hidden_layers=24, num_attention_heads=16,
-        intermediate_size=4096, feat_extract_norm="layer", do_stable_layer_norm=True,
-        conv_bias=True, num_feat_extract_layers=7, feat_proj_dropout=0.0,
-        hidden_dropout=0.0, attention_dropout=0.0, layerdrop=0.0,
+        hidden_size=1024,
+        num_hidden_layers=24,
+        num_attention_heads=16,
+        intermediate_size=4096,
+        feat_extract_norm="layer",
+        do_stable_layer_norm=True,
+        conv_bias=True,
+        num_feat_extract_layers=7,
+        feat_proj_dropout=0.0,
+        hidden_dropout=0.0,
+        attention_dropout=0.0,
+        layerdrop=0.0,
     )
     model = Wav2Vec2Model(cfg)
     missing, unexpected = model.load_state_dict(w2v, strict=False)
     real_missing = [m for m in missing if "position" not in m and "rotary" not in m]
-    print("missing:", real_missing[:8], f"(+{max(0, len(real_missing)-8)} more)")
-    print("unexpected:", unexpected[:8], f"(+{max(0, len(unexpected)-8)} more)")
+    print("missing:", real_missing[:8], f"(+{max(0, len(real_missing) - 8)} more)")
+    print("unexpected:", unexpected[:8], f"(+{max(0, len(unexpected) - 8)} more)")
     if real_missing or unexpected:
         print("WARNING: non-clean load — validate carefully")
 

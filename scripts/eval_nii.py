@@ -29,11 +29,22 @@ class SSLModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
         cfg = Wav2Vec2Config(
-            quantize_targets=True, extractor_mode="layer_norm", layer_norm_first=True,
-            final_dim=768, latent_temp=(2.0, 0.1, 0.999995), encoder_layerdrop=0.0,
-            dropout_input=0.0, dropout_features=0.0, dropout=0.0, attention_dropout=0.0,
-            conv_bias=True, encoder_layers=24, encoder_embed_dim=1024,
-            encoder_ffn_embed_dim=4096, encoder_attention_heads=16, feature_grad_mult=1.0,
+            quantize_targets=True,
+            extractor_mode="layer_norm",
+            layer_norm_first=True,
+            final_dim=768,
+            latent_temp=(2.0, 0.1, 0.999995),
+            encoder_layerdrop=0.0,
+            dropout_input=0.0,
+            dropout_features=0.0,
+            dropout=0.0,
+            attention_dropout=0.0,
+            conv_bias=True,
+            encoder_layers=24,
+            encoder_embed_dim=1024,
+            encoder_ffn_embed_dim=4096,
+            encoder_attention_heads=16,
+            feature_grad_mult=1.0,
         )
         self.model = Wav2Vec2Model(cfg)
 
@@ -71,9 +82,13 @@ def main():
     ap.add_argument("--json", required=True)
     args = ap.parse_args()
 
-    model = DeepfakeDetector.from_pretrained(
-        "nii-yamagishilab/mms-300m-anti-deepfake", cache_dir="models/hf"
-    ).to(DEVICE).eval()
+    model = (
+        DeepfakeDetector.from_pretrained(
+            "nii-yamagishilab/mms-300m-anti-deepfake", cache_dir="models/hf"
+        )
+        .to(DEVICE)
+        .eval()
+    )
 
     out = {}
     files = []

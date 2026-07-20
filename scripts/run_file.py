@@ -19,10 +19,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="VoiceShield Stage 1 — file demo")
     parser.add_argument("wav", help="Path to input WAV file")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--fallback", action="store_true",
-                        help="Force rule-based fallback classifier")
-    parser.add_argument("--stage1", action="store_true",
-                        help="Stage 1 single-scorer mode (skip the ensemble)")
+    parser.add_argument(
+        "--fallback", action="store_true", help="Force rule-based fallback classifier"
+    )
+    parser.add_argument(
+        "--stage1", action="store_true", help="Stage 1 single-scorer mode (skip the ensemble)"
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.wav):
@@ -31,6 +33,7 @@ def main() -> None:
 
     if args.fallback:
         import voiceshield.config as cfg
+
         cfg.USE_FALLBACK_CLASSIFIER = True
 
     import uvicorn

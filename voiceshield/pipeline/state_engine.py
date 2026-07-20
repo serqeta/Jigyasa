@@ -32,7 +32,7 @@ class StateEngine:
         self.first_red_t: float | None = None
         self._consec_suspicious = 0  # amber-or-red streak
         self._consec_red = 0
-        self._consec_clean = 0       # green streak (for de-escalation)
+        self._consec_clean = 0  # green streak (for de-escalation)
         self._current: RiskState = RiskState.GREEN
 
     def update(self, score: float, gate: GateState, t_end: float) -> RiskState:
@@ -72,15 +72,24 @@ class StateEngine:
         if self._consec_red >= _ESCALATE_CHUNKS:
             final = RiskState.RED
         elif self._consec_suspicious >= _ESCALATE_CHUNKS:
-            final = RiskState.AMBER if self._current is RiskState.GREEN else RiskState.RED \
-                if self._current is RiskState.RED else RiskState.AMBER
+            final = (
+                RiskState.AMBER
+                if self._current is RiskState.GREEN
+                else RiskState.RED
+                if self._current is RiskState.RED
+                else RiskState.AMBER
+            )
         # --- De-escalation ---
         elif self._current is RiskState.RED:
             # RED never auto-de-escalates
             final = RiskState.RED
         elif self._current is RiskState.AMBER:
             # AMBER → GREEN after sustained clean audio
-            final = RiskState.GREEN if self._consec_clean >= _DEESCALATE_AMBER_CHUNKS else RiskState.AMBER
+            final = (
+                RiskState.GREEN
+                if self._consec_clean >= _DEESCALATE_AMBER_CHUNKS
+                else RiskState.AMBER
+            )
         else:
             final = RiskState.GREEN
 
@@ -134,8 +143,11 @@ def fuse_scores(component_scores: dict[str, float]) -> float:
         fused = sum(weights[k] * component_scores[k] for k in component_scores) / total
 
     peak = max(
-        (factor * component_scores[k] for k, factor in config.PEAK_COMPONENTS.items()
-         if k in component_scores),
+        (
+            factor * component_scores[k]
+            for k, factor in config.PEAK_COMPONENTS.items()
+            if k in component_scores
+        ),
         default=0.0,
     )
     fused = max(fused, peak)

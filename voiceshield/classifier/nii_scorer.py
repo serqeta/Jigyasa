@@ -20,9 +20,7 @@ import numpy as np
 
 from voiceshield import config
 
-_WEIGHTS = os.path.join(
-    os.path.dirname(__file__), "..", "..", "models", "nii_mms300m_converted.pt"
-)
+_WEIGHTS = os.path.join(os.path.dirname(__file__), "..", "..", "models", "nii_mms300m_converted.pt")
 
 
 class NIIScorer:
@@ -33,9 +31,7 @@ class NIIScorer:
         from transformers import Wav2Vec2Config, Wav2Vec2Model
 
         if not os.path.exists(weights_path):
-            raise FileNotFoundError(
-                f"{weights_path} missing — run scripts/convert_nii.py first"
-            )
+            raise FileNotFoundError(f"{weights_path} missing — run scripts/convert_nii.py first")
         self._torch = torch
         self._device = config.get_device()
 
@@ -63,8 +59,8 @@ class NIIScorer:
         if self._half:
             wav = wav.half()
         with torch.no_grad():
-            emb = self._ssl(wav).last_hidden_state       # (1, T, 1024)
-            pooled = emb.mean(dim=1)                     # AdaptiveAvgPool1d(1) equiv
+            emb = self._ssl(wav).last_hidden_state  # (1, T, 1024)
+            pooled = emb.mean(dim=1)  # AdaptiveAvgPool1d(1) equiv
             logits = pooled @ self._fc_w.T + self._fc_b  # (1, 2)
             probs = torch.softmax(logits.float(), dim=-1)
         return float(probs[0, 0].item())  # index 0 = fake

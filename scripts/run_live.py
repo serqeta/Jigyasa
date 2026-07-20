@@ -16,14 +16,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 def main() -> None:
     parser = argparse.ArgumentParser(description="VoiceShield Stage 1 — live demo")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--fallback", action="store_true",
-                        help="Force rule-based fallback classifier")
-    parser.add_argument("--device", type=int, default=None,
-                        help="sounddevice input device index")
+    parser.add_argument(
+        "--fallback", action="store_true", help="Force rule-based fallback classifier"
+    )
+    parser.add_argument("--device", type=int, default=None, help="sounddevice input device index")
     args = parser.parse_args()
 
     if args.fallback:
         import voiceshield.config as cfg
+
         cfg.USE_FALLBACK_CLASSIFIER = True
 
     try:

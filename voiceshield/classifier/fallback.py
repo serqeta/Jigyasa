@@ -5,11 +5,11 @@ from voiceshield.features.scalars import compute_suspicion_features
 # Per-feature normalization bounds. Tuned on synthetic proxies (see
 # features/scalars.py); recalibrate on labeled bonafide/spoof audio.
 _BOUNDS: dict[str, tuple[float, float]] = {
-    "phase_discontinuity": (0.2, 0.8),   # neural-vocoder phase resets
+    "phase_discontinuity": (0.2, 0.8),  # neural-vocoder phase resets
     "pitch_smoothness_inv": (0.4, 0.95),  # unnaturally flat F0 contour
-    "artifact_ratio": (0.3, 1.0),        # 6-8 kHz vocoder/codec energy
-    "flux_smoothness": (0.3, 0.9),       # over-smooth frame-to-frame change
-    "dynamics_inv": (0.85, 0.98),        # static MFCC/LFCC acceleration
+    "artifact_ratio": (0.3, 1.0),  # 6-8 kHz vocoder/codec energy
+    "flux_smoothness": (0.3, 0.9),  # over-smooth frame-to-frame change
+    "dynamics_inv": (0.85, 0.98),  # static MFCC/LFCC acceleration
 }
 
 _WEIGHTS = {

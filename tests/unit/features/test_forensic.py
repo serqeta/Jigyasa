@@ -9,13 +9,14 @@ def test_f4_spectrograms():
 
     lin = spectrogram.compute_linear_stft(audio)
     assert lin.ndim == 2
-    assert lin.shape[0] == 257 # n_fft/2 + 1
+    assert lin.shape[0] == 257  # n_fft/2 + 1
 
     mel = spectrogram.compute_mel(audio)
     assert mel.shape[0] == 80
 
     cqt = spectrogram.compute_cqt(audio)
     assert cqt.ndim == 2
+
 
 def test_f4_phase():
     """TEST-F4.4: Phase discontinuity."""
@@ -30,6 +31,7 @@ def test_f4_phase():
     assert 0.0 <= pd_noise <= 1.0
     # Noise should have higher discontinuity than pure sine
     assert pd_noise > pd_sine
+
 
 def test_f4_pitch():
     """TEST-F4.5-6: Pitch and smoothness."""
@@ -46,11 +48,13 @@ def test_f4_pitch():
     smoothness = pitch.compute_pitch_smoothness(f0)
     assert smoothness >= 0.0
 
+
 def test_f4_flux():
     """TEST-F4.7: Spectral flux."""
     audio = np.random.randn(8000).astype(np.float32)
     fx = flux.compute_spectral_flux(audio)
     assert fx >= 0.0
+
 
 def test_f4_mfcc():
     """TEST-F4.8: MFCC."""
@@ -58,6 +62,7 @@ def test_f4_mfcc():
     m = mfcc.compute_mfcc_full(audio)
     assert m.shape[0] == 39
     assert m.ndim == 2
+
 
 def test_f4_subband():
     """TEST-F4.9: Subband energy."""

@@ -34,7 +34,7 @@ def test_ring_drops_oldest():
         tl.append(_entry(float(i) * 0.5))
     assert len(tl) == Timeline.CAPACITY
     entries = tl.entries()
-    assert entries[0].time == 0.5   # index 1 is now the oldest
+    assert entries[0].time == 0.5  # index 1 is now the oldest
 
 
 def test_ring_capacity_after_many():
@@ -90,4 +90,3 @@ def test_visualization_fields():
     assert d["spec_cqt"] == [[-2.0, -12.0]]
     assert d["pitch_contour"] == [220.0, None, 222.0]
     assert d["phase_contour"] == [0.1, 0.2]
-

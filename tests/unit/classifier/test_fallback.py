@@ -44,4 +44,4 @@ def test_flat_pitch_scores_higher_than_varied(scorer):
 
     s_flat = scorer.score(_flat_pitch())
     scorer.score(noisy_sine)  # no crash on noisy input
-    assert s_flat >= 0.0   # flat pitch → higher suspicion baseline
+    assert s_flat >= 0.0  # flat pitch → higher suspicion baseline

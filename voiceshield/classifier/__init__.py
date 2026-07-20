@@ -82,9 +82,7 @@ def get_scorers() -> dict[str, Scorer]:
                 scorers[name] = HFScorer(spec["model_id"], spec["spoof_label"])
                 log.info("Ensemble scorer '%s' loaded (%s).", name, spec["model_id"])
             except Exception as e:
-                log.warning(
-                    "Ensemble scorer '%s' unavailable (%s); excluded from fusion.", name, e
-                )
+                log.warning("Ensemble scorer '%s' unavailable (%s); excluded from fusion.", name, e)
 
         if config.ENABLE_PHASE_PITCH_SCORER:
             from voiceshield.classifier.phase_pitch import PhasePitchScorer

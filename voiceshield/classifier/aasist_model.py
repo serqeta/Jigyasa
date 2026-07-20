@@ -30,7 +30,7 @@ class GraphAttentionLayer(nn.Module):
         self.input_drop = nn.Dropout(p=0.2)
         self.act = nn.SELU(inplace=True)
 
-        self.temp = 1.
+        self.temp = 1.0
         if "temperature" in kwargs:
             self.temp = kwargs["temperature"]
 
@@ -99,7 +99,7 @@ class HtrgGraphAttentionLayer(nn.Module):
         self.input_drop = nn.Dropout(p=0.2)
         self.act = nn.SELU(inplace=True)
 
-        self.temp = 1.
+        self.temp = 1.0
         if "temperature" in kwargs:
             self.temp = kwargs["temperature"]
 
@@ -150,13 +150,17 @@ class HtrgGraphAttentionLayer(nn.Module):
 
         att_board = torch.zeros_like(att_map[:, :, :, 0]).unsqueeze(-1)
         att_board[:, :num_type1, :num_type1, :] = torch.matmul(
-            att_map[:, :num_type1, :num_type1, :], self.att_weight11)
+            att_map[:, :num_type1, :num_type1, :], self.att_weight11
+        )
         att_board[:, num_type1:, num_type1:, :] = torch.matmul(
-            att_map[:, num_type1:, num_type1:, :], self.att_weight22)
+            att_map[:, num_type1:, num_type1:, :], self.att_weight22
+        )
         att_board[:, :num_type1, num_type1:, :] = torch.matmul(
-            att_map[:, :num_type1, num_type1:, :], self.att_weight12)
+            att_map[:, :num_type1, num_type1:, :], self.att_weight12
+        )
         att_board[:, num_type1:, :num_type1, :] = torch.matmul(
-            att_map[:, num_type1:, :num_type1, :], self.att_weight12)
+            att_map[:, num_type1:, :num_type1, :], self.att_weight12
+        )
 
         att_map = att_board
         att_map = att_map / self.temp
@@ -220,9 +224,19 @@ class CONV(nn.Module):
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
 
-    def __init__(self, out_channels, kernel_size, sample_rate=16000,
-                 in_channels=1, stride=1, padding=0, dilation=1,
-                 bias=False, groups=1, mask=False):
+    def __init__(
+        self,
+        out_channels,
+        kernel_size,
+        sample_rate=16000,
+        in_channels=1,
+        stride=1,
+        padding=0,
+        dilation=1,
+        bias=False,
+        groups=1,
+        mask=False,
+    ):
         super().__init__()
         if in_channels != 1:
             raise ValueError("SincConv only supports in_channels=1")
@@ -245,8 +259,12 @@ class CONV(nn.Module):
         band_pass = torch.zeros(self.out_channels, self.kernel_size)
         for i in range(len(self.mel) - 1):
             fmin, fmax = self.mel[i], self.mel[i + 1]
-            hHigh = (2 * fmax / self.sample_rate) * np.sinc(2 * fmax * hsupp.numpy() / self.sample_rate)
-            hLow = (2 * fmin / self.sample_rate) * np.sinc(2 * fmin * hsupp.numpy() / self.sample_rate)
+            hHigh = (2 * fmax / self.sample_rate) * np.sinc(
+                2 * fmax * hsupp.numpy() / self.sample_rate
+            )
+            hLow = (2 * fmin / self.sample_rate) * np.sinc(
+                2 * fmin * hsupp.numpy() / self.sample_rate
+            )
             hideal = hHigh - hLow
             band_pass[i, :] = Tensor(np.hamming(self.kernel_size)) * Tensor(hideal)
         self.band_pass = band_pass
@@ -256,10 +274,17 @@ class CONV(nn.Module):
         if mask:
             A = int(np.random.uniform(0, 20))
             A0 = random.randint(0, band_pass_filter.shape[0] - A)
-            band_pass_filter[A0:A0 + A, :] = 0
+            band_pass_filter[A0 : A0 + A, :] = 0
         self.filters = band_pass_filter.view(self.out_channels, 1, self.kernel_size)
-        return F.conv1d(x, self.filters, stride=self.stride, padding=self.padding,
-                        dilation=self.dilation, bias=None, groups=1)
+        return F.conv1d(
+            x,
+            self.filters,
+            stride=self.stride,
+            padding=self.padding,
+            dilation=self.dilation,
+            bias=None,
+            groups=1,
+        )
 
 
 class Residual_block(nn.Module):
@@ -268,16 +293,19 @@ class Residual_block(nn.Module):
         self.first = first
         if not self.first:
             self.bn1 = nn.BatchNorm2d(num_features=nb_filts[0])
-        self.conv1 = nn.Conv2d(nb_filts[0], nb_filts[1], kernel_size=(2, 3),
-                               padding=(1, 1), stride=1)
+        self.conv1 = nn.Conv2d(
+            nb_filts[0], nb_filts[1], kernel_size=(2, 3), padding=(1, 1), stride=1
+        )
         self.selu = nn.SELU(inplace=True)
         self.bn2 = nn.BatchNorm2d(num_features=nb_filts[1])
-        self.conv2 = nn.Conv2d(nb_filts[1], nb_filts[1], kernel_size=(2, 3),
-                               padding=(0, 1), stride=1)
+        self.conv2 = nn.Conv2d(
+            nb_filts[1], nb_filts[1], kernel_size=(2, 3), padding=(0, 1), stride=1
+        )
         if nb_filts[0] != nb_filts[1]:
             self.downsample = True
-            self.conv_downsample = nn.Conv2d(nb_filts[0], nb_filts[1],
-                                             padding=(0, 1), kernel_size=(1, 3), stride=1)
+            self.conv_downsample = nn.Conv2d(
+                nb_filts[0], nb_filts[1], padding=(0, 1), kernel_size=(1, 3), stride=1
+            )
         else:
             self.downsample = False
         self.mp = nn.MaxPool2d((1, 3))
@@ -310,7 +338,9 @@ class Model(nn.Module):
         pool_ratios = d_args["pool_ratios"]
         temperatures = d_args["temperatures"]
 
-        self.conv_time = CONV(out_channels=filts[0], kernel_size=d_args["first_conv"], in_channels=1)
+        self.conv_time = CONV(
+            out_channels=filts[0], kernel_size=d_args["first_conv"], in_channels=1
+        )
         self.first_bn = nn.BatchNorm2d(num_features=1)
         self.drop = nn.Dropout(0.5, inplace=True)
         self.drop_way = nn.Dropout(0.2, inplace=True)
@@ -329,13 +359,25 @@ class Model(nn.Module):
         self.master1 = nn.Parameter(torch.randn(1, 1, gat_dims[0]))
         self.master2 = nn.Parameter(torch.randn(1, 1, gat_dims[0]))
 
-        self.GAT_layer_S = GraphAttentionLayer(filts[-1][-1], gat_dims[0], temperature=temperatures[0])
-        self.GAT_layer_T = GraphAttentionLayer(filts[-1][-1], gat_dims[0], temperature=temperatures[1])
+        self.GAT_layer_S = GraphAttentionLayer(
+            filts[-1][-1], gat_dims[0], temperature=temperatures[0]
+        )
+        self.GAT_layer_T = GraphAttentionLayer(
+            filts[-1][-1], gat_dims[0], temperature=temperatures[1]
+        )
 
-        self.HtrgGAT_layer_ST11 = HtrgGraphAttentionLayer(gat_dims[0], gat_dims[1], temperature=temperatures[2])
-        self.HtrgGAT_layer_ST12 = HtrgGraphAttentionLayer(gat_dims[1], gat_dims[1], temperature=temperatures[2])
-        self.HtrgGAT_layer_ST21 = HtrgGraphAttentionLayer(gat_dims[0], gat_dims[1], temperature=temperatures[2])
-        self.HtrgGAT_layer_ST22 = HtrgGraphAttentionLayer(gat_dims[1], gat_dims[1], temperature=temperatures[2])
+        self.HtrgGAT_layer_ST11 = HtrgGraphAttentionLayer(
+            gat_dims[0], gat_dims[1], temperature=temperatures[2]
+        )
+        self.HtrgGAT_layer_ST12 = HtrgGraphAttentionLayer(
+            gat_dims[1], gat_dims[1], temperature=temperatures[2]
+        )
+        self.HtrgGAT_layer_ST21 = HtrgGraphAttentionLayer(
+            gat_dims[0], gat_dims[1], temperature=temperatures[2]
+        )
+        self.HtrgGAT_layer_ST22 = HtrgGraphAttentionLayer(
+            gat_dims[1], gat_dims[1], temperature=temperatures[2]
+        )
 
         self.pool_S = GraphPool(pool_ratios[0], gat_dims[0], 0.3)
         self.pool_T = GraphPool(pool_ratios[1], gat_dims[0], 0.3)

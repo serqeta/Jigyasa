@@ -21,7 +21,7 @@ import numpy as np
 from voiceshield import config
 
 _FRAME = int(0.025 * config.SAMPLE_RATE)  # 25 ms
-_HOP = int(0.010 * config.SAMPLE_RATE)    # 10 ms
+_HOP = int(0.010 * config.SAMPLE_RATE)  # 10 ms
 _EPS = 1e-10
 
 
@@ -41,10 +41,12 @@ def _is_silent(energies_db: np.ndarray) -> bool:
 
 def _ltas_db(audio: np.ndarray, n_fft: int = 1024) -> tuple[np.ndarray, np.ndarray]:
     """Long-term average spectrum in dB and its frequency axis."""
-    spec = np.abs(np.fft.rfft(
-        audio[: len(audio) // n_fft * n_fft].reshape(-1, n_fft) * np.hanning(n_fft),
-        axis=1,
-    ))
+    spec = np.abs(
+        np.fft.rfft(
+            audio[: len(audio) // n_fft * n_fft].reshape(-1, n_fft) * np.hanning(n_fft),
+            axis=1,
+        )
+    )
     ltas = 20.0 * np.log10(np.mean(spec, axis=0) + _EPS)
     freqs = np.fft.rfftfreq(n_fft, 1.0 / config.SAMPLE_RATE)
     return ltas, freqs
@@ -74,7 +76,9 @@ def reverb_score(audio: np.ndarray) -> float:
         if env[i] >= peak_level - 6.0:  # inside a speech burst
             # walk forward to the burst's end, then time the decay to -20 dB
             j = i
-            while j + 1 < len(env) and env[j + 1] >= env[j] - 1.0 and env[j + 1] > peak_level - 12.0:
+            while (
+                j + 1 < len(env) and env[j + 1] >= env[j] - 1.0 and env[j + 1] > peak_level - 12.0
+            ):
                 j += 1
             k = j
             target = env[j] - 20.0

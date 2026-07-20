@@ -63,9 +63,7 @@ def test_tts_goes_red(tts_synthetic_wav, ensemble):
     """TEST-E2E10.2: TTS synthetic voice → first_red_t ≤ 10.0 s."""
     _skip_if_missing(tts_synthetic_wav)
     entries = _run(tts_synthetic_wav, ensemble)
-    first_red = next(
-        (e.first_red_t for e in entries if e.first_red_t is not None), None
-    )
+    first_red = next((e.first_red_t for e in entries if e.first_red_t is not None), None)
     assert first_red is not None, "Pipeline never reached RED on TTS audio"
     assert first_red <= 10.0, f"first_red_t too slow: {first_red:.1f} s"
 

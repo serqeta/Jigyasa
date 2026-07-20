@@ -95,14 +95,14 @@ def _build_genuine(df) -> None:
     for name, spk in GENUINE_SPEAKERS.items():
         grp = df[df["speaker_id"] == spk]
         clips = [
-            sf.read(io.BytesIO(r["audio"]["bytes"]), dtype="float32")[0]
-            for _, r in grp.iterrows()
+            sf.read(io.BytesIO(r["audio"]["bytes"]), dtype="float32")[0] for _, r in grp.iterrows()
         ]
         audio = _assemble(clips)
         sf.write(os.path.join(FIXTURES, name), audio, SR)
         f0 = _median_f0(audio)
-        print(f"  {name}: {len(audio)/SR:.1f}s (LibriSpeech speaker {spk}, "
-              f"median F0 {f0:.0f} Hz)")
+        print(
+            f"  {name}: {len(audio) / SR:.1f}s (LibriSpeech speaker {spk}, median F0 {f0:.0f} Hz)"
+        )
 
 
 def _build_tts(out_name: str, speaker_filter: str | None) -> None:
@@ -149,7 +149,7 @@ def _build_tts(out_name: str, speaker_filter: str | None) -> None:
     audio = _assemble(chunks, gap_s=0.30)
     sf.write(os.path.join(FIXTURES, out_name), audio.astype(np.float32), SR)
     who = f"cloned '{speaker_filter}'" if speaker_filter else "generic TTS voice"
-    print(f"  {out_name}: {len(audio)/SR:.1f}s ({who})")
+    print(f"  {out_name}: {len(audio) / SR:.1f}s ({who})")
 
 
 def main() -> None:

@@ -14,6 +14,7 @@ def test_a1_1_audiosource_abstract():
     with pytest.raises(TypeError):
         AudioSource()
 
+
 def test_a1_3_filesource_yields_padded_chunks():
     """TEST-A1.3: FileSource chunks and zero padding."""
     # Create a 1.7 second file at 16kHz mono (1.7 * 16000 = 27200 samples)

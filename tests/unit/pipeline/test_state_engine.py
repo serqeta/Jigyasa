@@ -22,7 +22,7 @@ def test_grey_does_not_latch_amber():
 def test_hysteresis_single_chunk_no_escalation():
     """TEST-R7.2: Single chunk above AMBER threshold does not escalate."""
     eng = StateEngine()
-    eng.update(0.10, GateState.NORMAL, 0.5)   # green
+    eng.update(0.10, GateState.NORMAL, 0.5)  # green
     state = eng.update(0.50, GateState.NORMAL, 1.0)  # one chunk amber
     # Should still be GREEN (needs 2 consecutive)
     assert state is RiskState.GREEN
@@ -43,7 +43,7 @@ def test_first_red_t_latched():
     first = eng.first_red_t
     assert first is not None
     eng.update(0.80, GateState.NORMAL, 2.0)
-    assert eng.first_red_t == first   # latched
+    assert eng.first_red_t == first  # latched
 
 
 def test_single_chunk_override_at_085():
@@ -57,7 +57,7 @@ def test_single_chunk_override_at_085():
 def test_no_de_escalation():
     """Once RED, stays RED even when score drops."""
     eng = StateEngine()
-    eng.update(0.90, GateState.NORMAL, 0.5)   # immediate RED
+    eng.update(0.90, GateState.NORMAL, 0.5)  # immediate RED
     state = eng.update(0.10, GateState.NORMAL, 1.0)
     assert state is RiskState.RED
 
@@ -85,12 +85,12 @@ def test_grey_preserves_escalation_for_resume():
     continues from AMBER (with hysteresis), and first_amber_t stays latched."""
     eng = StateEngine()
     eng.update(0.50, GateState.NORMAL, 0.5)
-    eng.update(0.50, GateState.NORMAL, 1.0)          # AMBER
-    eng.update(0.00, GateState.GREY, 1.5)            # silence → GREY
+    eng.update(0.50, GateState.NORMAL, 1.0)  # AMBER
+    eng.update(0.00, GateState.GREY, 1.5)  # silence → GREY
     first_amber = eng.first_amber_t
     eng.update(0.75, GateState.NORMAL, 2.0)
     state = eng.update(0.75, GateState.NORMAL, 2.5)  # 2 red-scoring chunks
-    assert state is RiskState.RED                    # resumed from AMBER
+    assert state is RiskState.RED  # resumed from AMBER
     assert eng.first_amber_t == first_amber
 
 
@@ -98,7 +98,7 @@ def test_grey_never_escalates():
     """No chunk processed under a GREY gate may raise the risk state."""
     eng = StateEngine()
     eng.update(0.50, GateState.NORMAL, 0.5)
-    eng.update(0.50, GateState.NORMAL, 1.0)          # AMBER
+    eng.update(0.50, GateState.NORMAL, 1.0)  # AMBER
     for i in range(6):
         state = eng.update(0.99, GateState.GREY, 1.5 + i * 0.5)
         assert state is RiskState.GREY

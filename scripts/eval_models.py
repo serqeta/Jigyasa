@@ -29,7 +29,7 @@ WIN, HOP = 4 * SR, 2 * SR
 def clip_score(scorer, audio: np.ndarray) -> float:
     if len(audio) <= WIN:
         return scorer.score(audio)
-    scores = [scorer.score(audio[i:i + WIN]) for i in range(0, len(audio) - WIN + 1, HOP)]
+    scores = [scorer.score(audio[i : i + WIN]) for i in range(0, len(audio) - WIN + 1, HOP)]
     return float(np.mean(scores))
 
 
@@ -95,13 +95,16 @@ def eer(pos: np.ndarray, neg: np.ndarray) -> float:
     if len(pos) == 0 or len(neg) == 0:
         return float("nan")
     ths = np.unique(np.concatenate([pos, neg]))
-    diffs = [(abs((neg >= t).mean() - (pos < t).mean()),
-             ((neg >= t).mean() + (pos < t).mean()) / 2) for t in ths]
+    diffs = [
+        (abs((neg >= t).mean() - (pos < t).mean()), ((neg >= t).mean() + (pos < t).mean()) / 2)
+        for t in ths
+    ]
     return float(min(diffs, key=lambda d: d[0])[1])
 
 
-def precision_at_base_rate(pos: np.ndarray, neg: np.ndarray, t: float,
-                           base_rate: float, consecutive: int = 1) -> float:
+def precision_at_base_rate(
+    pos: np.ndarray, neg: np.ndarray, t: float, base_rate: float, consecutive: int = 1
+) -> float:
     """Precision (P[fraud | flagged]) at a realistic fraud prevalence.
 
     Reveals the base-rate trap AUC hides. `consecutive` models the
@@ -153,13 +156,14 @@ def main():
             "genuine_mean": float(neg.mean()),
             "fake_mean": float(pos.mean()),
             "per_clip": [
-                {"group": g, "file": f, "label": lbl, "score": round(s, 4)}
-                for g, f, lbl, s in rows
+                {"group": g, "file": f, "label": lbl, "score": round(s, 4)} for g, f, lbl, s in rows
             ],
         }
-        print(f"{name:16s} AUC={results[name]['auc']:.3f}  EER={e:.3f}  "
-              f"FPR@.5={fpr:.2f}  TPR@.5={(pos >= 0.5).mean():.2f}  "
-              f"prec@1%={prec1:.0%}  +hyst={prec1_hys:.0%}")
+        print(
+            f"{name:16s} AUC={results[name]['auc']:.3f}  EER={e:.3f}  "
+            f"FPR@.5={fpr:.2f}  TPR@.5={(pos >= 0.5).mean():.2f}  "
+            f"prec@1%={prec1:.0%}  +hyst={prec1_hys:.0%}"
+        )
 
     # per-group breakdown for the top models
     print("\nPer-group mean scores:")
@@ -170,9 +174,12 @@ def main():
         by = {g: [] for g in groups}
         for row in res["per_clip"]:
             by[row["group"]].append(row["score"])
-        print(name.ljust(16) + "".join(
-            (f"{np.mean(v):.2f}" if v else "—").rjust(15) for v in
-            (by[g] for g in groups)))
+        print(
+            name.ljust(16)
+            + "".join(
+                (f"{np.mean(v):.2f}" if v else "—").rjust(15) for v in (by[g] for g in groups)
+            )
+        )
 
     if args.json:
         with open(args.json, "w") as f:
