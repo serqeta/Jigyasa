@@ -616,11 +616,12 @@ bullets(
             "(AUC 0.81 at 15 dB) documented rather than hidden.",
         ),
         (
-            "We measured what doesn't work, too.",
-            "Replay detection: we built 4 detectors and collected real loudspeaker recordings; none generalized to "
-            "an unseen channel (AUC 0.19–0.72), reproducing the published state of the art (cross-channel EER "
-            "27–46%; passive replay is an open problem). So we hold it out of the verdict rather than false-flag "
-            "genuine callers — see docs/REPLAY_FINDINGS.md.",
+            "We solved the hard one honestly.",
+            "Replay: five approaches reproduced the literature's channel wall (AUC 0.19–0.87) — then LoRA-fine-tuning "
+            "wav2vec2 on a real replay corpus (EchoFake) with channel augmentation cracked the wideband case: "
+            "cross-channel AUC 0.97 on recordings the model never trained on. Shipped at a verify-don't-block "
+            "weight; narrowband telephony stays honest pilot work. Synthesis detection is telephony-robust "
+            "(NII 0.93 through G.711/AMR/G.722). Every number measured on real audio — see docs/REPLAY_FINDINGS.md.",
         ),
     ],
     size=15,

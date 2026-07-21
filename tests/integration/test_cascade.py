@@ -87,7 +87,7 @@ def test_stage1_suspicion_engages_stage2(tmp_path):
     engaged = [e for e in entries if e.stage2_active]
     assert engaged, "stage2 never engaged"
     first = engaged[0]
-    assert set(first.component_scores) >= {"stage1", "ssl", "replay"}
+    assert set(first.component_scores) >= {"stage1", "ssl"}
     # confirmed by ensemble → escalates (0.8 × 0.9 = 0.72 fused → RED)
     assert entries[-1].state == "red"
 

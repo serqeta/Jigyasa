@@ -17,7 +17,7 @@ class TimelineEntry:
     speech_active: bool = True
     voiced_ratio: float = 0.0
     component_scores: dict[str, float] | None = None
-    replay: dict[str, float] | None = None
+    replay: dict[str, Any] | None = None
     stage2_active: bool = True
     speaker_drift: float = 0.0
     speaker_changed: bool = False

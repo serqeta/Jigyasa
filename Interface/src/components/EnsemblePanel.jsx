@@ -7,7 +7,7 @@ const MODEL_META = {
   spec: { label: 'AST', detail: 'spectrogram transformer · ASVspoof 5' },
   wavlm: { label: 'WavLM', detail: 'In-the-Wild deepfakes' },
   phase_pitch: { label: 'Phase / Pitch', detail: 'rule-based vocoder artifacts' },
-  replay: { label: 'Replay', detail: 'experimental — not fused into the verdict' },
+  replay: { label: 'Replay', detail: 'loudspeaker-replay detector · EchoFake LoRA (wideband)' },
 }
 
 const card = {

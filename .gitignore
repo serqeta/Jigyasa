@@ -34,7 +34,10 @@ htmlcov/
 models/*.pth
 models/*.pt
 models/*.bin
+models/*.pkl
 models/hf/
+# but DO track the shipped LoRA replay adapter (small: 3 MB)
+!models/replay_lora/
 
 # Evidence packages (audit exports — never committed).
 # Anchored to repo root so it does NOT match the source package

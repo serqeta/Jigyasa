@@ -34,11 +34,13 @@ def pop_cues(a):
     lo, sp = sosfilt(_SOS_LO, a), sosfilt(_SOS_SP, a)
     win = int(0.02 * SR)
     env = np.sqrt(np.convolve(lo**2, np.ones(win) / win, mode="same")) + 1e-9
-    return np.array([
-        10 * np.log10((np.mean(lo**2) + 1e-12) / (np.mean(sp**2) + 1e-12)),
-        float(np.max(env) / np.median(env)),
-        float(((env - env.mean()) ** 4).mean() / (env.var() ** 2 + 1e-12)),
-    ])
+    return np.array(
+        [
+            10 * np.log10((np.mean(lo**2) + 1e-12) / (np.mean(sp**2) + 1e-12)),
+            float(np.max(env) / np.median(env)),
+            float(((env - env.mean()) ** 4).mean() / (env.var() ** 2 + 1e-12)),
+        ]
+    )
 
 
 def feat(a):
@@ -61,7 +63,9 @@ def augment(a, rng):
     if rng.random() < 0.6:
         t60 = rng.uniform(0.05, 0.5)
         n = int(t60 * SR)
-        ir = (rng.standard_normal(n) * np.exp(-6.9 * np.arange(n) / SR / t60)).astype(np.float32) * 0.3
+        ir = (rng.standard_normal(n) * np.exp(-6.9 * np.arange(n) / SR / t60)).astype(
+            np.float32
+        ) * 0.3
         ir[0] = 1.0
         x = np.convolve(x, ir)[: len(a)].astype(np.float32)
     # additive noise
@@ -81,9 +85,11 @@ def build(paths, label, naug, rng):
     X, y = [], []
     for p in paths:
         a = sf.read(p, dtype="float32")[0]
-        X.append(feat(a)); y.append(label)
+        X.append(feat(a))
+        y.append(label)
         for _ in range(naug):
-            X.append(feat(augment(a[:WIN], rng))); y.append(label)
+            X.append(feat(augment(a[:WIN], rng)))
+            y.append(label)
     return X, y
 
 
@@ -106,8 +112,11 @@ def main():
     print(f"building augmented training set (naug={args.naug}/clip)…", flush=True)
     Xs, ys = build(sorted(glob.glob(f"{args.pa}/spoof/*.wav")), 1, args.naug, rng)
     Xb, yb = build(sorted(glob.glob(f"{args.pa}/bonafide/*.wav")), 0, args.naug, rng)
-    X = np.array(Xs + Xb); y = np.array(ys + yb)
-    print(f"  train vectors: {len(y)} (replay={int((y==1).sum())} bonafide={int((y==0).sum())})")
+    X = np.array(Xs + Xb)
+    y = np.array(ys + yb)
+    print(
+        f"  train vectors: {len(y)} (replay={int((y == 1).sum())} bonafide={int((y == 0).sum())})"
+    )
 
     files = sorted(glob.glob(f"{REAL}/*.wav"))
     Xte = np.array([feat(sf.read(f, dtype="float32")[0]) for f in files])

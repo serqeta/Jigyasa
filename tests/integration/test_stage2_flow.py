@@ -55,11 +55,12 @@ def test_ensemble_entries_carry_component_scores(tmp_path):
     runner = _run_ensemble(tmp_path)
     entry = runner.timeline.latest()
     assert entry is not None
+    # Fake ensemble here is {stage1, phase_pitch} — replay is a real learned
+    # model added by get_scorers() only when models/replay_lora exists, not
+    # auto-injected into arbitrary ensembles.
     assert entry.component_scores is not None
-    assert set(entry.component_scores) >= {"stage1", "phase_pitch", "replay"}
+    assert set(entry.component_scores) >= {"stage1", "phase_pitch"}
     assert all(0.0 <= v <= 1.0 for v in entry.component_scores.values())
-    assert entry.replay is not None
-    assert 0.0 <= entry.replay["score"] <= 1.0
 
 
 def test_single_scorer_mode_still_works(tmp_path):

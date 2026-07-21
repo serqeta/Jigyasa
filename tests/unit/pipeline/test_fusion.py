@@ -17,7 +17,7 @@ def test_weighted_mean_dominates_when_above_floors():
     # nii 0.50, ssl 0.15 → (0.5*0.8 + 0.15*0.2) / 0.65 = 0.6615…
     # peak floors (0.8*0.8=0.64, 0.8*0.2=0.16) sit below the mean.
     fused = fuse_scores({"nii": 0.8, "ssl": 0.2})
-    assert fused == pytest.approx((0.5 * 0.8 + 0.15 * 0.2) / 0.65)
+    assert fused == pytest.approx((0.45 * 0.8 + 0.15 * 0.2) / 0.60)
 
 
 def test_peak_evidence_floor():

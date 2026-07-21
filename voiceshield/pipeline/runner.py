@@ -240,11 +240,13 @@ class PipelineRunner:
                 for name, scorer in self._ensemble.items():
                     if name not in component_scores:
                         component_scores[name] = _component(scorer)
-                if config.ENABLE_REPLAY_DETECTION:
-                    from voiceshield.replay import detect_replay
-
-                    replay_result = detect_replay(audio_win)
-                    component_scores["replay"] = replay_result.score
+                # The learned replay scorer (if loaded) is a normal ensemble
+                # member, already scored above as component_scores["replay"].
+                # The legacy DSP replay module is superseded and not wired
+                # (zero-weight, non-discriminative — see docs/REPLAY_FINDINGS.md).
+                if "replay" in component_scores:
+                    replay_result = {"score": round(component_scores["replay"], 4),
+                                     "model": "echofake-lora"}
 
             raw_score = fuse_scores(component_scores)
             # Weak-evidence scaling: mostly-silent windows (speech onsets)
@@ -297,7 +299,7 @@ class PipelineRunner:
             speech_active=speech_active,
             voiced_ratio=round(voiced_ratio, 3),
             component_scores={k: round(v, 4) for k, v in component_scores.items()},
-            replay=replay_result.to_dict() if replay_result else None,
+            replay=replay_result,
             stage2_active=(not self._cascade) or self._stage2_active,
             speaker_drift=float(drift["drift"]),
             speaker_changed=bool(drift["speaker_changed"]),

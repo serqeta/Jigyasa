@@ -58,6 +58,15 @@ ENABLE_REPLAY_DETECTION = True
 # hackathon use — see NOTICE.md before any commercial deployment).
 ENABLE_NII_SCORER = True
 
+# Learned replay / physical-access scorer: LoRA-fine-tuned wav2vec2 (NII
+# backbone) trained on EchoFake + RawBoost augmentation
+# (scripts/finetune_replay.py, models/replay_lora/). Validated CROSS-channel
+# — trained only on EchoFake, held-out AUC 0.97 on our own unseen mic
+# recordings (deduped: 0 false alarms, 3/4 replays; far-field is the weak
+# spot). Covers consumer-device WIDEBAND replay only, NOT telephony.
+# Loads only if models/replay_lora/ exists; see docs/REPLAY_FINDINGS.md.
+ENABLE_LEARNED_REPLAY = True
+
 # Pretrained anti-spoofing ensemble members (Hugging Face Hub, all 16 kHz
 # mono, AutoModelForAudioClassification). spoof_label is the logit index
 # whose softmax probability means "synthetic/spoofed" — polarity differs
@@ -102,15 +111,19 @@ HF_CACHE_DIR = "models/hf"
 #    than random on real audio; kept loadable for /v1 compatibility only.
 #  - phase_pitch: AUC 0.49 — explainability display, not evidence.
 #  - spec (AST): saturates at p(spoof)=1.0 on any input.
-#  - replay: awaiting real loudspeaker/call recordings for calibration.
+#  - replay: the LEARNED EchoFake replay scorer (2026-07-21). Detects the
+#    loudspeaker-replay channel (orthogonal to synthesis). Modest weight +
+#    AMBER-capped peak floor (see below) — a confident replay raises to
+#    AMBER on its own; RED needs corroboration (e.g. replayed clone →
+#    replay + synthesis both fire). Wideband only.
 FUSION_WEIGHTS = {
-    "nii": 0.50,
+    "nii": 0.45,
     "ssl": 0.15,
     "wavlm": 0.15,
+    "replay": 0.25,
     "stage1": 0.0,
     "spec": 0.0,
     "phase_pitch": 0.0,
-    "replay": 0.0,
 }
 
 # Peak-evidence rule: a weighted mean dilutes a single confident detector.
@@ -121,7 +134,10 @@ FUSION_WEIGHTS = {
 #  - ssl 0.8:   genuine p99 0.85 → floor 0.68 (< RED).
 #  - wavlm 0.6: genuine p99 hits 0.999 (≈1% of real speakers) → solo
 #               ceiling stays AMBER.
-PEAK_COMPONENTS = {"nii": 0.8, "ssl": 0.8, "wavlm": 0.6}
+#  - replay 0.6: cross-channel AUC 0.97 on our recordings but small
+#               validation → solo ceiling AMBER ("escalate/verify"); RED
+#               needs corroboration.
+PEAK_COMPONENTS = {"nii": 0.8, "ssl": 0.8, "wavlm": 0.6, "replay": 0.6}
 
 # Cascade screener component (Stage 1 slot). NII replaced AASIST-L after
 # the benchmark; runner falls back to "stage1" for custom ensembles.

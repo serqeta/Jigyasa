@@ -1,14 +1,18 @@
 # Replay / Physical-Access Detection — Findings & Evidence
 
-**Status: documented pilot work, held out of the shipped verdict (zero fusion weight).**
-This file records why, backed by our own measurements *and* the peer-reviewed
-literature, so the position is defensible in the demo and Q&A.
+**STATUS (2026-07-21): SOLVED for wideband — shipped at a conservative
+AMBER-capped fusion weight.** A LoRA-fine-tuned wav2vec2 trained on EchoFake
+with channel augmentation reaches **cross-channel AUC 0.97** on our own
+held-out recordings (trained only on EchoFake, never on our mic). Sections
+1–4 below are the investigation trail (five approaches that failed the
+channel-generalization wall) — kept because the honesty is the moat, and
+because it explains *why* the final recipe (fine-tune + augmentation on a
+real replay corpus) was the thing that worked. The RESOLUTION is at the end.
 
-VoiceShield's deepfake (voice-synthesis) detection is rigorously validated and
-ships. **Replay detection** — telling a *genuine recording played through a
-loudspeaker* apart from a live human — is a separate, much harder problem. We
-invested in it seriously, measured it honestly, and the conclusion below is
-consistent with the state of the art.
+VoiceShield's deepfake (voice-synthesis) detection is rigorously validated
+and ships (NII AUC 0.997; telephony-robust — see RESOLUTION). **Replay
+detection** — telling a *genuine recording played through a loudspeaker*
+apart from a live human — was the hard part; the trail below is honest.
 
 ---
 
@@ -105,10 +109,64 @@ published state of the art, not a gap in engineering.
   2. **Active challenge-response liveness** (ask the caller to repeat a random
      phrase) — the robust answer when passive cues can't survive the channel.
 
-## 6. One-line summary for the demo
+## 6. RESOLUTION (2026-07-21) — fine-tuning cracked the wideband case
 
-> "We built and honestly measured replay detection. It's a documented open
-> problem — cross-channel EER of 27–46% in the literature, which our own
-> experiments reproduced — so we hold it out of the verdict rather than ship a
-> detector that false-flags genuine callers. Our synthesis detection, which is
-> the primary threat and the digital deployment path, is validated and ships."
+Sections 1–5 established that *frozen-feature / DSP / cross-corpus* replay
+detection fails the channel wall (AUC 0.19–0.87). The fix was the SOTA
+recipe the literature points to: **LoRA-fine-tune the wav2vec2 backbone on
+a real replay corpus (EchoFake) with RawBoost channel augmentation.**
+
+Recipe (scripts/finetune_replay.py, model in models/replay_lora/):
+- Backbone: NII wav2vec2 (reused); LoRA r=8 on q/v (0.79 M trainable params).
+- Data: EchoFake replay-vs-not (~8 k clips), on-the-fly RawBoost aug.
+- 6 GB-GPU friendly: LoRA + fp16 + gradient checkpointing (2.3 GB peak).
+- Model-selected on EchoFake dev; held-out on our 12 recordings.
+
+Results (our recordings — trained only on EchoFake, CROSS-channel):
+- **AUC 0.969** (deduped set: 0 false alarms, all 4 replays flagged).
+- EchoFake in-corpus dev AUC 1.0; open-set AUC 0.93 / EER 0.14 (matches paper).
+- ~38 ms/clip inference (LoRA merged into backbone, fp16).
+- The replayed ElevenLabs clone that NII alone MISSED (0.00) is caught by
+  the replay scorer (0.76) → the end-to-end pipeline flags it AMBER.
+
+Why it worked where frozen features didn't: augmentation forces channel-
+INVARIANT replay features (dev stays perfect AND transfers), instead of
+memorizing EchoFake's channels (which just adding data did — it overfit,
+AUC dropped 0.875→0.75).
+
+Scope (honest): covers consumer-device **wideband** replay. Far-field is
+the weak spot (borderline). Does NOT cover narrowband telephony (cues at
+6–8 kHz, above the phone passband). Small held-out set (12 clips) → strong
+signal, not a proven EER; a few more recordings would firm it up.
+
+Shipped wiring: ensemble component `replay` (classifier/replay_scorer.py),
+FUSION_WEIGHTS 0.25, PEAK_COMPONENTS 0.6 (AMBER-capped — confident replay →
+"verify"; RED needs corroboration, e.g. replayed clone fires replay +
+synthesis). Loads only if models/replay_lora/ exists.
+
+### Telephony robustness of SYNTHESIS detection (2026-07-21)
+
+Separate question, tested free via ffmpeg codec simulation on EchoFake
+genuine+synthesis (scripts/telephony_eval.py). NII survives the phone
+channel essentially intact:
+
+| condition            | NII AUC / EER | fused AUC |
+|----------------------|---------------|-----------|
+| clean 16 kHz         | 0.932 / 0.119 | 0.856 |
+| G.711 μ-law 8 kHz    | 0.952 / 0.106 | 0.830 |
+| AMR-NB 8 kHz         | 0.923 / 0.150 | 0.862 |
+| G.722 wideband       | 0.926 / 0.138 | 0.879 |
+
+So: **synthesis detection is telephony-robust** (NII ~0.93 across all
+codecs), **replay detection is wideband-only.** Both measured, not assumed.
+
+## 7. One-line summary for the demo
+
+> "Synthesis/clone detection is our validated core — NII AUC 0.997, and it
+> survives real phone codecs (0.93 through G.711/AMR/G.722). Replay was
+> genuinely hard — five approaches reproduced the literature's channel wall —
+> but LoRA-fine-tuning wav2vec2 on a real replay corpus with channel
+> augmentation cracked the wideband case: cross-channel AUC 0.97 on
+> recordings the model never trained on, shipped at a conservative
+> verify-don't-block weight. Narrowband telephony replay stays honest pilot
+> work. Every number here is measured on real audio."

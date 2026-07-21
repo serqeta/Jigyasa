@@ -84,6 +84,15 @@ def get_scorers() -> dict[str, Scorer]:
             except Exception as e:
                 log.warning("Ensemble scorer '%s' unavailable (%s); excluded from fusion.", name, e)
 
+        if config.ENABLE_LEARNED_REPLAY:
+            try:
+                from voiceshield.classifier.replay_scorer import ReplayScorer
+
+                scorers["replay"] = ReplayScorer()
+                log.info("Ensemble scorer 'replay' loaded (EchoFake LoRA).")
+            except Exception as e:
+                log.warning("Ensemble scorer 'replay' unavailable (%s); excluded.", e)
+
         if config.ENABLE_PHASE_PITCH_SCORER:
             from voiceshield.classifier.phase_pitch import PhasePitchScorer
 
