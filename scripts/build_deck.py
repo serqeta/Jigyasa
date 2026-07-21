@@ -486,8 +486,8 @@ text(
     Inches(6.25),
     SLIDE_W - 2 * MARGIN,
     Inches(0.6),
-    "Every component earns its fusion weight through validation. The same benchmark retired our original Stage 1 "
-    "screener (AASIST-L: AUC 0.33 on real audio) and keeps the replay module at zero weight until calibrated.",
+    "Every component earns its fusion weight through validation — the same benchmark retired our original Stage 1 "
+    "screener (AASIST-L: AUC 0.33 on real audio) and holds replay at zero weight (open problem, see roadmap).",
     size=12,
     color=GREY,
     line_spacing=1.1,
@@ -616,10 +616,11 @@ bullets(
             "(AUC 0.81 at 15 dB) documented rather than hidden.",
         ),
         (
-            "A validation harness as the product.",
-            "Fixture pipeline (English + Hindi, GAN/TTS/VC/wild), 94 automated "
-            "tests, latency + timing benchmarks — new detectors are trusted only as far as they prove. Replay and "
-            "watermark modules ship but stay out of the verdict until real call data validates them. That is the moat.",
+            "We measured what doesn't work, too.",
+            "Replay detection: we built 4 detectors and collected real loudspeaker recordings; none generalized to "
+            "an unseen channel (AUC 0.19–0.72), reproducing the published state of the art (cross-channel EER "
+            "27–46%; passive replay is an open problem). So we hold it out of the verdict rather than false-flag "
+            "genuine callers — see docs/REPLAY_FINDINGS.md.",
         ),
     ],
     size=15,
@@ -807,13 +808,13 @@ phases = [
     (
         "Today",
         "Hackathon prototype",
-        "cascade ensemble · replay detection ·\nevidence export · live dashboard",
+        "cascade ensemble · multilingual · evidence\nexport · live dashboard",
         True,
     ),
     (
         "+3 months",
         "Bank pilot",
-        "SIP/RTP tap on live traffic · replay-channel\ndetection calibrated on real call audio",
+        "SIP/RTP tap on live traffic · replay via\nchallenge-response + replay-aware training",
         False,
     ),
     (
