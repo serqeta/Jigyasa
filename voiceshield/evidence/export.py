@@ -90,6 +90,12 @@ def export_evidence(
     with open(os.path.join(package_dir, "audio_sha256.txt"), "w") as f:
         f.write(sha256 + "\n")
 
+    # Surface the most recent verdict rationale at the top level so an auditor
+    # sees *why* without replaying the whole timeline (it is also per-entry).
+    verdict_explanation = next(
+        (e.get("explanation") for e in reversed(timeline) if e.get("explanation")), None
+    )
+
     manifest = {
         "created_utc": stamp,
         "audio_sha256": sha256,
@@ -97,6 +103,7 @@ def export_evidence(
         "sample_rate": config.SAMPLE_RATE,
         "component_scores": component_scores or {},
         "fusion_weights": config.FUSION_WEIGHTS,
+        "verdict_explanation": verdict_explanation,
         "timeline": timeline,
         "files": {
             "spectrogram": os.path.basename(spectrogram_path),

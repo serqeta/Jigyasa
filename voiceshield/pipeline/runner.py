@@ -16,6 +16,7 @@ from voiceshield.features.scalars import compute_suspicion_features
 from voiceshield.features.snr import compute_gate_decision, estimate_snr
 from voiceshield.features.vad import compute_vad
 from voiceshield.logger import StructuredLogger
+from voiceshield.pipeline.explain import explain_verdict
 from voiceshield.pipeline.state_engine import StateEngine, fuse_scores
 from voiceshield.pipeline.timeline import Timeline, TimelineEntry
 
@@ -245,8 +246,10 @@ class PipelineRunner:
                 # The legacy DSP replay module is superseded and not wired
                 # (zero-weight, non-discriminative — see docs/REPLAY_FINDINGS.md).
                 if "replay" in component_scores:
-                    replay_result = {"score": round(component_scores["replay"], 4),
-                                     "model": "echofake-lora"}
+                    replay_result = {
+                        "score": round(component_scores["replay"], 4),
+                        "model": "echofake-lora",
+                    }
 
             raw_score = fuse_scores(component_scores)
             # Weak-evidence scaling: mostly-silent windows (speech onsets)
@@ -276,6 +279,16 @@ class PipelineRunner:
         # the SNR gate said — silence must read GREY, never held/escalated risk.
         effective_gate = gate if speech_active else GateState.GREY
         risk_state = self._state_engine.update(score, effective_gate, t_end)
+
+        # Explain *why* this verdict — a faithful decomposition of the fusion
+        # (which detector drove it, consensus vs. peak-evidence, top cue).
+        explanation = explain_verdict(
+            component_scores,
+            score,
+            risk_state.value,
+            top_artifact=artifact,
+            speaker_changed=bool(drift["speaker_changed"]),
+        )
 
         # Skip expensive visual extraction when no fresh speech arrived.
         # REDUCED-gate frames still carry real speech and get visuals.
@@ -310,6 +323,7 @@ class PipelineRunner:
             spec_cqt=visuals["spec_cqt"],
             pitch_contour=visuals["pitch_contour"],
             phase_contour=visuals["phase_contour"],
+            explanation=explanation,
         )
         self._timeline.append(entry)
 

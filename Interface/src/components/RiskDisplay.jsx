@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useVoiceShield } from '../context/VoiceShieldContext.jsx'
 import Sparkline from './Sparkline.jsx'
 import EnsemblePanel from './EnsemblePanel.jsx'
+import WhyFlagged from './WhyFlagged.jsx'
 
 function SpectrogramHeatmap({ matrix, endTime }) {
   const canvasRef = useRef(null)
@@ -161,6 +162,28 @@ function PitchPhasePlots({ pitch, phase }) {
   )
 }
 
+// Plain-language guide to each view: what it is, and what a fake looks like.
+// We keep several because each representation exposes a *different* artifact —
+// no single view catches every kind of manipulation.
+const SPEC_INFO = {
+  stft: {
+    what: 'Linear STFT — raw sound energy across the full frequency range (0–8 kHz), even Hz spacing top to bottom, time left to right. Bright = loud at that pitch.',
+    look: 'Look for a hard horizontal line where energy suddenly stops — a band-limiting cliff that betrays a phone codec or a loudspeaker replay. Unnatural gaps or a "checkerboard" texture up high suggest synthesis.',
+  },
+  mel: {
+    what: 'Mel spectrogram — the same energy warped to the perceptual (mel) scale, which stretches the low/mid bands humans hear speech in. This is essentially what the neural deepfake models "see".',
+    look: 'Look for smeared or overly-clean formant bands (the horizontal stripes of vowels). Real voices are slightly rough and irregular; vocoders tend to render them too smooth or too uniform.',
+  },
+  cqt: {
+    what: 'Constant-Q transform — log-frequency spacing with fine resolution down low, aligned to musical/harmonic structure. Best view of pitch and its harmonics.',
+    look: 'Look at the evenly-stacked harmonic lines. Wobble-free, mechanically perfect, or unnaturally spaced harmonics point to synthetic pitch generation.',
+  },
+  pitch_phase: {
+    what: 'Two forensic traces: the pitch (F0) contour over time, and a phase-discontinuity index. Live speech has micro-jitter in pitch and continuous phase.',
+    look: 'A pitch line that is too smooth/flat is a classic vocoder tell. Spikes in the phase index mark the seams where synthesized waveform segments were stitched together.',
+  },
+}
+
 function ForensicPanel({ entry }) {
   const [tab, setTab] = useState('stft')
 
@@ -197,6 +220,13 @@ function ForensicPanel({ entry }) {
         )}
       </div>
       <div style={{ padding: '8px 12px 12px' }}>
+        <div style={{
+          fontSize: 11, color: 'var(--color-fog-text)', lineHeight: 1.5,
+          marginBottom: 10, fontStyle: 'italic',
+        }}>
+          Three views because each reveals a different kind of artifact — one
+          picture can't show them all. Switch tabs to cross-check.
+        </div>
         <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
           {tabBtn('stft', 'STFT (Linear)')}
           {tabBtn('mel', 'Mel Spec')}
@@ -209,6 +239,20 @@ function ForensicPanel({ entry }) {
           {tab === 'cqt' && <SpectrogramHeatmap matrix={entry.spec_cqt} endTime={entry.time} />}
           {tab === 'pitch_phase' && <PitchPhasePlots pitch={entry.pitch_contour} phase={entry.phase_contour} />}
         </div>
+        {SPEC_INFO[tab] && (
+          <div style={{
+            marginTop: 10, padding: '10px 12px', borderRadius: 8,
+            background: 'var(--color-cream-surface)',
+            border: '1px solid var(--color-mist-divider)',
+          }}>
+            <div style={{ fontSize: 12, color: 'var(--color-slate-text)', lineHeight: 1.55 }}>
+              <span style={{ fontWeight: 700 }}>What this is — </span>{SPEC_INFO[tab].what}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--color-slate-text)', lineHeight: 1.55, marginTop: 6 }}>
+              <span style={{ fontWeight: 700, color: 'var(--color-fog-text)' }}>What a fake looks like — </span>{SPEC_INFO[tab].look}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -387,6 +431,9 @@ export default function RiskDisplay() {
       }}>
         {speechActive ? ACTIONS[sk] : 'Waiting for voice. Risk scoring pauses until speech fills the analysis window.'}
       </div>
+
+      {/* Why this verdict — plain-language rationale */}
+      <WhyFlagged entry={entry} />
 
       {/* Metrics */}
       <div style={card}>

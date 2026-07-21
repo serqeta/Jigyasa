@@ -61,29 +61,35 @@ function ScoreBar({ name, value }) {
   )
 }
 
+// The replay component is now a single learned scorer (EchoFake LoRA fine-tune
+// of wav2vec2), not the retired DSP sub-cue heuristics. Show its score and a
+// plain-language reading of what it means.
 function ReplayBreakdown({ replay }) {
-  const parts = [
-    ['reverb', 'Reverb tail'],
-    ['freq_response', 'Band-limiting'],
-    ['double_compression', 'Re-encode cliff'],
-    ['background_mismatch', 'Noise-floor jumps'],
-  ]
+  const s = replay.score ?? 0
+  const reading =
+    s >= 0.70 ? 'Strong loudspeaker-playback signature — likely a replayed recording, not a live voice.'
+    : s >= 0.30 ? 'Some playback-channel cues present — verify the caller is live.'
+    : 'No meaningful replay signature — consistent with a live microphone.'
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 8 }}>
-      {parts.map(([key, label]) => (
-        <div key={key} style={{
-          padding: '6px 8px', borderRadius: 6,
-          background: 'var(--color-cream-surface)',
-          border: '1px solid var(--color-mist-divider)',
-        }}>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--color-fog-text)' }}>
-            {label}
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color: scoreColor(replay[key] ?? 0) }}>
-            {(replay[key] ?? 0).toFixed(2)}
-          </div>
-        </div>
-      ))}
+    <div style={{
+      marginTop: 8, padding: '8px 10px', borderRadius: 6,
+      background: 'var(--color-cream-surface)',
+      border: '1px solid var(--color-mist-divider)',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--color-fog-text)' }}>
+          Replay likelihood · {replay.model || 'echofake-lora'}
+        </span>
+        <span style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color: scoreColor(s) }}>
+          {s.toFixed(2)}
+        </span>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-slate-text)', lineHeight: 1.5, marginTop: 4 }}>
+        {reading}
+      </div>
+      <div style={{ fontSize: 9, color: 'var(--color-ash-text)', marginTop: 4 }}>
+        Wideband only — not calibrated for narrowband telephony.
+      </div>
     </div>
   )
 }
