@@ -150,6 +150,28 @@ def _contribution_rows(contributions: list[dict[str, Any]], driver: str) -> str:
     return "\n".join(rows)
 
 
+def _evidence_json(manifest: dict[str, Any]) -> str:
+    """Pretty-print the ACTUAL evidence envelope for the appendix.
+
+    The per-chunk visualization arrays (spectrogram matrices, pitch/phase
+    contours) are thousands of floats each — kept in the on-disk package but
+    replaced here with a size marker so the printed JSON stays legible. Every
+    other value is the real, unmodified envelope.
+    """
+    import copy
+    import json
+
+    m = copy.deepcopy(manifest)
+    m.pop("package_dir", None)  # transient temp path, not part of the record
+    heavy = ("spec_linear", "spec_mel", "spec_cqt", "pitch_contour", "phase_contour")
+    for entry in m.get("timeline", []) or []:
+        for k in heavy:
+            if k in entry:
+                n = len(entry[k]) if isinstance(entry[k], list) else 0
+                entry[k] = f"<{n} values — omitted from print; full array in evidence.json>"
+    return json.dumps(m, indent=2, ensure_ascii=False)
+
+
 def _timeline_rows(timeline: list[dict[str, Any]]) -> str:
     rows = []
     for e in timeline:
@@ -241,6 +263,7 @@ def render_report(
         "REASONS_LI": _reasons_li(reasons),
         "CONTRIBUTIONS_ROWS": _contribution_rows(contributions, driver),
         "TIMELINE_ROWS": _timeline_rows(timeline),
+        "EVIDENCE_JSON": html.escape(_evidence_json(manifest)),
         "FUSION_WEIGHTS_CAPTION": fw_caption,
         "AMBER_TH": f"{config.SCORE_AMBER:.2f}",
         "RED_TH": f"{config.SCORE_RED:.2f}",

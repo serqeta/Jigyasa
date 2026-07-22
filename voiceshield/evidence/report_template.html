@@ -242,6 +242,12 @@
   .mapgrid td,.mapgrid th{border:1px solid var(--rule);padding:4px 7px;text-align:left;}
   .mapgrid th{background:var(--surface-2);font-size:7.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
   .mapgrid code{font-family:var(--mono);color:var(--brass);}
+  .jsondump{
+    font-family:var(--mono);font-size:7.6px;line-height:1.45;color:var(--body);
+    background:var(--surface);border:1px solid var(--rule-strong);border-radius:3px;
+    padding:11px 13px;margin:0;white-space:pre-wrap;word-break:break-word;
+    overflow-wrap:anywhere;max-width:100%;
+  }
 
   .specimen-band{
     background:var(--amber-bg);border:1px solid var(--amber-line);color:var(--amber);
@@ -522,26 +528,13 @@
     </dl>
   </section>
 
-  <!-- ============ APPENDIX B — FIELD MAP ============ -->
+  <!-- ============ APPENDIX B — MACHINE-READABLE ENVELOPE ============ -->
   <section>
-    <h2 class="sec"><span class="num">B</span> Appendix — evidence.json field map</h2>
-    <p class="lead">Wire each <code>data-field</code> in this template to the corresponding key of the evidence package
-      produced by <code>voiceshield/evidence/export.py</code>.</p>
-    <table class="mapgrid">
-      <thead><tr><th>Template field</th><th>Source (evidence.json)</th><th>Notes</th></tr></thead>
-      <tbody>
-        <tr><td><code>created_utc</code></td><td><code>created_utc</code></td><td>Package timestamp</td></tr>
-        <tr><td><code>audio_sha256</code></td><td><code>audio_sha256</code></td><td>Integrity anchor</td></tr>
-        <tr><td><code>audio_seconds</code> / <code>sample_rate</code></td><td><code>audio_seconds</code> / <code>sample_rate</code></td><td>Buffer descriptors</td></tr>
-        <tr><td><code>state</code> / <code>score</code> / <code>mechanism</code> / <code>driver_label</code> / <code>headline</code> / <code>reasons</code></td><td><code>verdict_explanation.*</code></td><td>From explain_verdict()</td></tr>
-        <tr><td><code>contributions</code> (table)</td><td><code>verdict_explanation.contributions[]</code></td><td>name, label, score, weight, contribution, peak_floor</td></tr>
-        <tr><td><code>fusion weights</code> / thresholds</td><td><code>fusion_weights</code> + config</td><td>Config snapshot</td></tr>
-        <tr><td><code>timeline</code> (table)</td><td><code>timeline[]</code></td><td>time, state, score, snr_db, voiced_ratio, component_scores, top_artifact, speaker_drift</td></tr>
-        <tr><td><code>first_amber_t</code> / <code>first_red_t</code></td><td>latest <code>timeline[]</code> entry</td><td>Time-to-detection</td></tr>
-        <tr><td><code>spectrogram_png</code> / <code>phase_heatmap_png</code></td><td><code>files.spectrogram</code> / <code>files.phase_heatmap</code></td><td>Embed the PNGs</td></tr>
-        <tr><td><code>case_id</code> / <code>analyst</code> / <code>source</code> / <code>retention</code> / <code>consent_basis</code></td><td>institution-supplied</td><td>Not emitted by the engine; filled by the bank's case system</td></tr>
-      </tbody>
-    </table>
+    <h2 class="sec"><span class="num">B</span> Appendix — evidence.json (machine-readable envelope)</h2>
+    <p class="lead">The actual evidence package emitted by <code>voiceshield/evidence/export.py</code> — every value in
+      this report is derived from the fields below. The per-chunk spectrogram / pitch / phase arrays (thousands of
+      floats each) are retained verbatim in the on-disk package and shown here only as size markers.</p>
+    <pre class="jsondump" data-field="evidence_json">{{EVIDENCE_JSON}}</pre>
   </section>
 
 </div>
