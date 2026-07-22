@@ -25,6 +25,7 @@ const initialState = {
   entries: [],
   current: null,
   summary: null,
+  speakerChanged: false, // sticky: latches once a speaker change is seen (until reset)
 
   analysisStatus: 'idle',
   analysisError: null,
@@ -73,6 +74,8 @@ function reducer(state, action) {
         summary: action.payload.summary,
         analysisStatus: 'done',
         chunkCount: action.payload.entries.length,
+        // Sticky: speaker change latches for the whole analysed window.
+        speakerChanged: action.payload.entries.some((e) => e.speaker_changed),
       }
     case 'STREAM_ENTRY': {
       if (state.paused) return state
@@ -83,6 +86,8 @@ function reducer(state, action) {
         current: action.payload,
         chunkCount: state.chunkCount + 1,
         lastUpdateTime: Date.now(),
+        // Sticky: once a speaker change is seen it persists until reset.
+        speakerChanged: state.speakerChanged || !!action.payload.speaker_changed,
       }
     }
     case 'RESET':
@@ -95,6 +100,7 @@ function reducer(state, action) {
         analysisStatus: 'idle',
         analysisError: null,
         selectedEntry: null,
+        speakerChanged: false,
       }
     case 'SET_PAUSED':
       return { ...state, paused: action.payload }
@@ -119,7 +125,7 @@ function reducer(state, action) {
     case 'CLOSE_REPORT':
       return { ...state, activeReport: null }
     case 'CLEAR_TIMELINE':
-      return { ...state, entries: [], current: null, chunkCount: 0, summary: null, selectedEntry: null }
+      return { ...state, entries: [], current: null, chunkCount: 0, summary: null, selectedEntry: null, speakerChanged: false }
     default:
       return state
   }
@@ -151,9 +157,15 @@ export function VoiceShieldProvider({ children }) {
     return () => clearInterval(timer)
   }, [checkHealth])
 
-  // WS connect
+  // WS connect — with auto-reconnect so a transient drop (phone screen-lock,
+  // network blip, ngrok idle reset) self-heals instead of freezing the feed.
+  const reconnectRef = useRef(null)
+  const wsIntentionalRef = useRef(false)
+
   const connectWs = useCallback(() => {
-    if (wsRef.current) wsRef.current.close()
+    wsIntentionalRef.current = false
+    if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null }
+    if (wsRef.current) { try { wsRef.current.close() } catch {} }
     const base = stateRef.current.serverUrl
     const wsUrl = base.replace('https://', 'wss://').replace('http://', 'ws://') + '/v2/ws/risk'
     dispatch({ type: 'SET_WS_STATUS', payload: 'connecting' })
@@ -164,10 +176,23 @@ export function VoiceShieldProvider({ children }) {
       try { dispatch({ type: 'STREAM_ENTRY', payload: JSON.parse(e.data) }) } catch {}
     }
     ws.onerror = () => dispatch({ type: 'SET_WS_STATUS', payload: 'error' })
-    ws.onclose = () => dispatch({ type: 'SET_WS_STATUS', payload: 'disconnected' })
+    ws.onclose = () => {
+      dispatch({ type: 'SET_WS_STATUS', payload: 'disconnected' })
+      // Reconnect unless we closed on purpose (mode switch / unmount) and we're
+      // still in a live mode.
+      const live = stateRef.current.mode === 'stream' || stateRef.current.mode === 'mic'
+      if (!wsIntentionalRef.current && live && !reconnectRef.current) {
+        reconnectRef.current = setTimeout(() => {
+          reconnectRef.current = null
+          connectWs()
+        }, 1500)
+      }
+    }
   }, [])
 
   const disconnectWs = useCallback(() => {
+    wsIntentionalRef.current = true
+    if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null }
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
     dispatch({ type: 'SET_WS_STATUS', payload: 'idle' })
   }, [])

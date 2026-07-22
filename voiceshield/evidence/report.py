@@ -272,6 +272,7 @@ def render_report(
         "FIRST_RED": _fmt_t(last.get("first_red_t")),
         "TOP_ARTIFACT": html.escape(top_artifact),
         "SPEAKER_CHANGED": speaker_advisory,
+        "SPEAKER_STYLE": "color:var(--amber);font-weight:700;" if spk_hits else "",
         "SNR": _snr_summary(timeline),
         "ACTION": _ACTION.get(state, "Review"),
         "REASONS_LI": _reasons_li(reasons),

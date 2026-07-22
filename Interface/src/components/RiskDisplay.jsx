@@ -437,8 +437,9 @@ export default function RiskDisplay() {
       {/* Why this verdict — plain-language rationale */}
       <WhyFlagged entry={entry} />
 
-      {/* Speaker-consistency advisory (separate from the spoof verdict) */}
-      {entry.speaker_changed && (
+      {/* Speaker-consistency advisory (separate from the spoof verdict).
+          Sticky: latches once detected and persists until the stream resets. */}
+      {state.speakerChanged && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '9px 14px', borderRadius: 'var(--radius-sm)', marginBottom: 14,
@@ -447,11 +448,11 @@ export default function RiskDisplay() {
           <span style={{ fontSize: 15 }}>⚠️</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#a16207' }}>
-              Speaker changed mid-call
+              Speaker change detected in this call
             </div>
             <div style={{ fontSize: 11, color: '#a16207', lineHeight: 1.4 }}>
-              The voice differs from the call's reference speaker. Advisory only —
-              not counted toward the spoof score.
+              A voice differing from the call's reference speaker was detected.
+              Advisory only — not counted toward the spoof score. Persists until reset.
               {entry.speaker_drift != null && (
                 <span style={{ fontFamily: 'var(--font-mono)', marginLeft: 6 }}>
                   drift {entry.speaker_drift.toFixed(2)}
@@ -473,8 +474,8 @@ export default function RiskDisplay() {
           <MetaRow label="Top artifact" value={entry.top_artifact ? entry.top_artifact.replace(/_/g, ' ') : '—'} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--color-mist-divider)' }}>
             <span style={{ fontSize: 12, color: 'var(--color-fog-text)', fontWeight: 500 }}>Speaker consistency</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: entry.speaker_changed ? '#a16207' : '#16a34a' }}>
-              {entry.speaker_changed ? 'CHANGED' : 'consistent'}
+            <span style={{ fontSize: 12, fontWeight: 700, color: state.speakerChanged ? '#a16207' : '#16a34a' }}>
+              {state.speakerChanged ? 'CHANGED' : 'consistent'}
               {entry.speaker_drift != null && (
                 <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 400, color: 'var(--color-ash-text)', marginLeft: 6 }}>
                   ({entry.speaker_drift.toFixed(2)})
