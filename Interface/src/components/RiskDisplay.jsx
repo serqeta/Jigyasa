@@ -345,7 +345,7 @@ function SummaryGrid({ summary }) {
 }
 
 export default function RiskDisplay() {
-  const { state, generateReport } = useVoiceShield()
+  const { state } = useVoiceShield()
   const entry = state.current
   const sk = entry?.state || 'grey'
   const c = SC[sk] || SC.grey
@@ -432,24 +432,35 @@ export default function RiskDisplay() {
         {speechActive ? ACTIONS[sk] : 'Waiting for voice. Risk scoring pauses until speech fills the analysis window.'}
       </div>
 
-      {/* Generate forensic report for this case */}
-      <button
-        onClick={generateReport}
-        disabled={state.reportStatus === 'generating'}
-        style={{
-          width: '100%', padding: '9px 14px', marginBottom: 14,
-          borderRadius: 'var(--radius-sm)', border: 'none',
-          background: state.reportStatus === 'generating' ? 'var(--color-mist-divider)' : 'var(--color-ink-black)',
-          color: state.reportStatus === 'generating' ? 'var(--color-ash-text)' : '#fff',
-          fontSize: 13, fontWeight: 600,
-          cursor: state.reportStatus === 'generating' ? 'wait' : 'pointer',
-        }}
-      >
-        {state.reportStatus === 'generating' ? '⌛ Generating forensic report…' : '📄 Generate forensic report'}
-      </button>
+      {/* Forensic report is generated from the Reports page, not here. */}
 
       {/* Why this verdict — plain-language rationale */}
       <WhyFlagged entry={entry} />
+
+      {/* Speaker-consistency advisory (separate from the spoof verdict) */}
+      {entry.speaker_changed && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '9px 14px', borderRadius: 'var(--radius-sm)', marginBottom: 14,
+          border: '1px solid #fde68a', background: '#fffbeb',
+        }}>
+          <span style={{ fontSize: 15 }}>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#a16207' }}>
+              Speaker changed mid-call
+            </div>
+            <div style={{ fontSize: 11, color: '#a16207', lineHeight: 1.4 }}>
+              The voice differs from the call's reference speaker. Advisory only —
+              not counted toward the spoof score.
+              {entry.speaker_drift != null && (
+                <span style={{ fontFamily: 'var(--font-mono)', marginLeft: 6 }}>
+                  drift {entry.speaker_drift.toFixed(2)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Metrics */}
       <div style={card}>
@@ -460,6 +471,17 @@ export default function RiskDisplay() {
           <MetaRow label="SNR" value={`${entry.snr_db.toFixed(1)} dB`} mono />
           <Bar value={Math.max(0, entry.snr_db)} max={40} color={snrGlow} />
           <MetaRow label="Top artifact" value={entry.top_artifact ? entry.top_artifact.replace(/_/g, ' ') : '—'} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--color-mist-divider)' }}>
+            <span style={{ fontSize: 12, color: 'var(--color-fog-text)', fontWeight: 500 }}>Speaker consistency</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: entry.speaker_changed ? '#a16207' : '#16a34a' }}>
+              {entry.speaker_changed ? 'CHANGED' : 'consistent'}
+              {entry.speaker_drift != null && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 400, color: 'var(--color-ash-text)', marginLeft: 6 }}>
+                  ({entry.speaker_drift.toFixed(2)})
+                </span>
+              )}
+            </span>
+          </div>
           <MetaRow label="First AMBER" value={entry.first_amber_t != null ? `${entry.first_amber_t.toFixed(2)} s` : '—'} mono />
           <MetaRow label="First RED" value={entry.first_red_t != null ? `${entry.first_red_t.toFixed(2)} s` : '—'} mono />
         </div>

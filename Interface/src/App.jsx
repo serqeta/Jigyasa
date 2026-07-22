@@ -6,6 +6,7 @@ import RiskDisplay from './components/RiskDisplay.jsx'
 import TimelineTable from './components/TimelineTable.jsx'
 import StatusBar from './components/StatusBar.jsx'
 import ReportsView from './components/ReportsView.jsx'
+import ReportPane from './components/ReportPane.jsx'
 
 function Body() {
   const { state } = useVoiceShield()
@@ -49,6 +50,7 @@ export default function App() {
         <div style={{ gridColumn: '1 / -1', gridRow: '3' }}>
           <StatusBar />
         </div>
+        <ReportPane />
       </div>
     </VoiceShieldProvider>
   )

@@ -33,6 +33,8 @@ _COMPONENT_WHY: dict[str, str] = {
     "replay": "the replay detector found the audio consistent with loudspeaker "
     "playback (a recording being replayed, not a live voice)",
     "phase_pitch": "the rule-based check found vocoder phase/pitch artifacts",
+    "codec": "the codec-artifact detector (Codecfake) matched neural-codec/vocoder "
+    "synthesis signatures typical of modern TTS voice cloning",
 }
 
 _COMPONENT_LABEL: dict[str, str] = {
@@ -43,6 +45,7 @@ _COMPONENT_LABEL: dict[str, str] = {
     "stage1": "AASIST-L",
     "replay": "Replay (EchoFake LoRA)",
     "phase_pitch": "Phase / Pitch",
+    "codec": "Codec (Codecfake W2VAASIST)",
 }
 
 # Plain-language phrasing for the top_artifact display names.

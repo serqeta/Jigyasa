@@ -48,6 +48,8 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Vendored verbatim from the Codecfake repo (CC BY-NC-ND — must not be edited).
+extend-exclude = ["voiceshield/classifier/_codecfake"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]

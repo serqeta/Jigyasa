@@ -241,10 +241,6 @@ class PipelineRunner:
                 for name, scorer in self._ensemble.items():
                     if name not in component_scores:
                         component_scores[name] = _component(scorer)
-                # The learned replay scorer (if loaded) is a normal ensemble
-                # member, already scored above as component_scores["replay"].
-                # The legacy DSP replay module is superseded and not wired
-                # (zero-weight, non-discriminative — see docs/REPLAY_FINDINGS.md).
                 if "replay" in component_scores:
                     replay_result = {
                         "score": round(component_scores["replay"], 4),

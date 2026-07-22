@@ -30,7 +30,11 @@ def main() -> None:
     from voiceshield.pipeline.runner import PipelineRunner
 
     source = StreamSource()
-    runner = PipelineRunner(source, ensemble=get_scorers(), cascade=True)
+    # No cascade: the ensemble is two orthogonal detectors (NII synthesis +
+    # replay physical), both cheap enough (~100 ms) to run on every chunk.
+    # There is nothing to screen/defer, so score both directly — this also
+    # removes the replay blind spot a synthesis-only screener would create.
+    runner = PipelineRunner(source, ensemble=get_scorers(), cascade=False)
     app = create_app(runner)
 
     print(f"\nVoiceShield (browser-mic mode) on http://localhost:{args.port}")

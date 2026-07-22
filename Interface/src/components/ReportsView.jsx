@@ -27,7 +27,7 @@ function StatePill({ s }) {
 }
 
 export default function ReportsView() {
-  const { state, generateReport } = useVoiceShield()
+  const { state, generateReport, dispatch } = useVoiceShield()
   const hasCase = state.entries.length > 0
   const generating = state.reportStatus === 'generating'
 
@@ -92,13 +92,13 @@ export default function ReportsView() {
               </div>
             </div>
             <button
-              onClick={() => window.open(r.url, '_blank')}
+              onClick={() => dispatch({ type: 'OPEN_REPORT', payload: r })}
               style={{
                 padding: '7px 14px', borderRadius: 8, border: '1px solid var(--color-mist-divider)',
                 background: 'var(--color-cream-surface)', fontSize: 12, fontWeight: 600,
                 color: 'var(--color-slate-text)', cursor: 'pointer', flexShrink: 0,
               }}
-            >Open report ↗</button>
+            >Open report</button>
           </div>
         ))
       )}

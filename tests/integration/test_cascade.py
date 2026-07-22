@@ -93,14 +93,17 @@ def test_stage1_suspicion_engages_stage2(tmp_path):
 
 
 def test_probe_catches_stage1_miss(tmp_path):
-    # stage1 NEVER flags (the AASIST-misses-clone scenario); ssl is certain.
+    # Screener NEVER flags; the periodic deep probe engages the ensemble and
+    # escalates on the hot member. (With the two-detector ensemble a lone
+    # non-screener member escalates to AMBER "verify"; RED needs corroboration.)
     entries = _run(tmp_path, 6.0, _Fixed(0.05), _Fixed(0.95))
     assert any(e.stage2_active for e in entries), "probe must engage stage2"
-    assert entries[-1].state == "red"
+    assert entries[-1].state in ("amber", "red")
     # detection delay bounded by the probe cadence + hysteresis
-    first_red = next(e.first_red_t for e in entries if e.first_red_t is not None)
+    first_alert = next((e.first_amber_t for e in entries if e.first_amber_t is not None), None)
+    assert first_alert is not None
     max_delay = (cfg.CASCADE_PROBE_EVERY + 3) * (cfg.CHUNK_MS / 1000.0)
-    assert first_red <= max_delay + 1.0
+    assert first_alert <= max_delay + 1.0
 
 
 def test_cascade_disengages_after_clean(tmp_path):

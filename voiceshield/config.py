@@ -9,15 +9,17 @@ CHUNK_SAMPLES = int(SAMPLE_RATE * (CHUNK_MS / 1000.0))  # 8000
 BUFFER_SECONDS = 10
 BUFFER_SAMPLES = SAMPLE_RATE * BUFFER_SECONDS  # 160000
 
-# SNR Quality Gate thresholds (dB)
-SNR_NORMAL_DB = 12.0
-SNR_GREY_DB = 8.0
+# SNR Quality Gate thresholds (dB). Softened 2026-07-22 (10→NORMAL, 6→GREY)
+# so live-mic speech in a normal room isn't over-gated to GREY mid-sentence.
+SNR_NORMAL_DB = 10.0
+SNR_GREY_DB = 6.0
 
 # Voice-activity gate: forensic features are only meaningful on speech.
 # A window with too few voiced frames is scored 0.0 (nothing to analyze)
 # rather than letting silence masquerade as a synthetic artifact.
 VAD_THRESHOLD_DB = -40.0  # frame energy above this counts as speech (fallback)
-MIN_VOICED_RATIO = 0.20  # require >=20% voiced frames in the window to score
+MIN_VOICED_RATIO = 0.10  # softened 2026-07-22 (was 0.20): brief pauses/breaths
+# mid-speech no longer drop the newest chunk to GREY and reset the hysteresis
 
 # Neural VAD (Silero, MIT ~2 MB). Robust in noise where the energy
 # threshold fails — measured 2026-07-20: energy VAD reads pure noise as
@@ -67,6 +69,22 @@ ENABLE_NII_SCORER = True
 # Loads only if models/replay_lora/ exists; see docs/REPLAY_FINDINGS.md.
 ENABLE_LEARNED_REPLAY = True
 
+# Codecfake countermeasure: XLS-R-300m + W2VAASIST co-trained CSAM checkpoint
+# (arXiv:2405.04880). Targets neural-codec/vocoder synthesis artifacts — the
+# family modern commercial TTS (ElevenLabs etc.) is built on — to cover
+# generators the ASVspoof-trained ensemble misses. Loads only if
+# models/codecfake/cotrain_w2v2aasist_CSAM/ exists. Runs at fusion weight 0.0
+# initially (observed, not fused) pending validation on real ElevenLabs
+# samples — see voiceshield/classifier/codec_scorer.py. LICENSE: CC BY-NC-ND
+# (NonCommercial) — research/demo only.
+# TEMPORARILY DISABLED (2026-07-22): loading the codec scorer (2nd XLS-R
+# front-end + pickled W2VAASIST) destabilizes the process — native heap
+# crash "free(): unaligned chunk" on startup/first inference. It was at
+# weight 0 (observing) so verdicts are unaffected. Re-enable once the crash
+# is isolated (candidate causes: 2nd wav2vec2 build conflict, the pickled-
+# module load, or 5-model VRAM pressure on the 6 GB card).
+ENABLE_CODEC_DETECTOR = False
+
 # Pretrained anti-spoofing ensemble members (Hugging Face Hub, all 16 kHz
 # mono, AutoModelForAudioClassification). spoof_label is the logit index
 # whose softmax probability means "synthetic/spoofed" — polarity differs
@@ -77,7 +95,10 @@ HF_SCORERS: dict[str, dict] = {
     "ssl": {
         "model_id": "Gustking/wav2vec2-large-xlsr-deepfake-audio-classification",
         "spoof_label": 1,
-        "enabled": True,
+        # DISABLED 2026-07-22: reduced the ensemble to NII (synthesis) + replay
+        # (physical). NII (AUC 0.997, telephony-robust) covers the synthesis
+        # axis on its own — incl. ElevenLabs at 0.997 — so ssl is redundant.
+        "enabled": False,
     },
     # Audio Spectrogram Transformer fine-tuned on ASVspoof 5.
     # DISABLED after fixture validation: outputs p(Spoof)≈1.0 for every
@@ -93,7 +114,9 @@ HF_SCORERS: dict[str, dict] = {
     "wavlm": {
         "model_id": "abhishtagatya/wavlm-base-960h-itw-deepfake",
         "spoof_label": 1,
-        "enabled": True,
+        # DISABLED 2026-07-22: false-fired at 1.0 on genuine voices (a real
+        # false-alarm liability), and NII already covers synthesis. Retired.
+        "enabled": False,
     },
 }
 HF_CACHE_DIR = "models/hf"
@@ -116,14 +139,22 @@ HF_CACHE_DIR = "models/hf"
 #    AMBER-capped peak floor (see below) — a confident replay raises to
 #    AMBER on its own; RED needs corroboration (e.g. replayed clone →
 #    replay + synthesis both fire). Wideband only.
+# NOTE (2026-07-22): codec (Codecfake W2VAASIST) was briefly promoted to a 2nd
+# weight (0.25) + AMBER-cap after it caught an ElevenLabs clone at 0.99 — but it
+# then FALSE-fired on real captured voices (0.97 → RED), a classic uncalibrated
+# threshold-transfer failure (clean-fixture EER hid it). Reverted to OBSERVING
+# (weight 0.0, no peak floor) pending calibration on a real-voice set — see
+# docs / codec_scorer.py. codec still runs and shows in the panel; it just does
+# not move the verdict.
+# 2026-07-22: reduced to a two-detector ensemble on two orthogonal axes —
+#   nii = synthesis (AUC 0.997, telephony-robust; catches ElevenLabs at 0.997)
+#   replay = physical loudspeaker-replay (cross-channel AUC 0.97, AMBER-capped)
+# ssl/wavlm retired (redundant / false-alarming), codec disabled (crash +
+# uncalibrated). phase_pitch stays at weight 0 for the explainability cue only.
 FUSION_WEIGHTS = {
-    "nii": 0.45,
-    "ssl": 0.15,
-    "wavlm": 0.15,
-    "replay": 0.25,
-    "stage1": 0.0,
-    "spec": 0.0,
-    "phase_pitch": 0.0,
+    "nii": 0.70,
+    "replay": 0.30,
+    "phase_pitch": 0.0,  # explainability display, not evidence
 }
 
 # Peak-evidence rule: a weighted mean dilutes a single confident detector.
@@ -131,13 +162,10 @@ FUSION_WEIGHTS = {
 # set from measured genuine-score quantiles (2026-07-20 benchmark):
 #  - nii 0.8:   genuine p99 0.81 → floor 0.65 (< RED); fake median 0.997
 #               → floor 0.80 (RED via hysteresis). Never instant-RED solo.
-#  - ssl 0.8:   genuine p99 0.85 → floor 0.68 (< RED).
-#  - wavlm 0.6: genuine p99 hits 0.999 (≈1% of real speakers) → solo
-#               ceiling stays AMBER.
 #  - replay 0.6: cross-channel AUC 0.97 on our recordings but small
 #               validation → solo ceiling AMBER ("escalate/verify"); RED
-#               needs corroboration.
-PEAK_COMPONENTS = {"nii": 0.8, "ssl": 0.8, "wavlm": 0.6, "replay": 0.6}
+#               needs corroboration (e.g. a replayed clone fires replay + nii).
+PEAK_COMPONENTS = {"nii": 0.8, "replay": 0.6}
 
 # Cascade screener component (Stage 1 slot). NII replaced AASIST-L after
 # the benchmark; runner falls back to "stage1" for custom ensembles.

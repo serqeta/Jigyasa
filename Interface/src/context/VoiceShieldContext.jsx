@@ -3,7 +3,14 @@ import React, { createContext, useCallback, useContext, useEffect, useReducer, u
 const VoiceShieldContext = createContext(null)
 
 const initialState = {
-  serverUrl: 'http://localhost:8000',
+  // Same-origin: API + WebSockets go through the Vite dev-server proxy (see
+  // vite.config.js) to the backend on :8000. This means one origin serves
+  // everything — works for localhost, LAN (http://<ip>:3000), and a single
+  // ngrok HTTPS tunnel (which also unlocks the mic via a secure context).
+  serverUrl:
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'http://localhost:8000',
   amberThreshold: 0.30,
   redThreshold: 0.70,
   snrFloor: 8.0,
@@ -39,6 +46,7 @@ const initialState = {
   view: 'dashboard', // dashboard | reports
   reports: [],        // { id, ts, label, state, score, url }
   reportStatus: 'idle', // idle | generating | done | error
+  activeReport: null, // report shown in the right-side pane
 }
 
 function reducer(state, action) {
@@ -106,6 +114,10 @@ function reducer(state, action) {
       return { ...state, reportStatus: action.payload }
     case 'ADD_REPORT':
       return { ...state, reports: [action.payload, ...state.reports] }
+    case 'OPEN_REPORT':
+      return { ...state, activeReport: action.payload }
+    case 'CLOSE_REPORT':
+      return { ...state, activeReport: null }
     case 'CLEAR_TIMELINE':
       return { ...state, entries: [], current: null, chunkCount: 0, summary: null, selectedEntry: null }
     default:
@@ -339,7 +351,8 @@ export function VoiceShieldProvider({ children }) {
       }
       dispatch({ type: 'ADD_REPORT', payload: report })
       dispatch({ type: 'SET_REPORT_STATUS', payload: 'done' })
-      window.open(url, '_blank')
+      // Open in the in-page side pane (not a new tab).
+      dispatch({ type: 'OPEN_REPORT', payload: report })
       return report
     } catch (e) {
       dispatch({ type: 'SET_REPORT_STATUS', payload: 'error' })

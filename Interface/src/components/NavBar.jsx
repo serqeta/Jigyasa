@@ -47,12 +47,6 @@ export default function NavBar() {
           fontSize: 10, fontWeight: 700, color: '#fff', letterSpacing: '-0.5px',
         }}>VS</div>
         <span style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.3px' }}>VoiceShield</span>
-        <span style={{
-          fontSize: 10, fontWeight: 600, color: 'var(--color-fog-text)',
-          background: 'var(--color-cream-surface)',
-          border: '1px solid var(--color-mist-divider)',
-          borderRadius: 3, padding: '1px 5px', letterSpacing: '0.04em',
-        }}>STAGE 1</span>
       </div>
 
       <div style={{ width: 1, height: 20, background: 'var(--color-mist-divider)' }} />

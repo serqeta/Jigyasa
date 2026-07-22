@@ -98,6 +98,18 @@ def get_scorers() -> dict[str, Scorer]:
 
             scorers["phase_pitch"] = PhasePitchScorer()
 
+        if getattr(config, "ENABLE_CODEC_DETECTOR", False):
+            try:
+                from voiceshield.classifier.codec_scorer import CodecScorer, model_available
+
+                if model_available():
+                    scorers["codec"] = CodecScorer()
+                    log.info("Ensemble scorer 'codec' loaded (Codecfake cotrain W2VAASIST).")
+                else:
+                    log.info("Ensemble scorer 'codec' skipped (weights not present).")
+            except Exception as e:
+                log.warning("Ensemble scorer 'codec' unavailable (%s); excluded.", e)
+
         _ENSEMBLE = scorers
         return scorers
 

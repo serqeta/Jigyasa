@@ -8,6 +8,7 @@ const MODEL_META = {
   wavlm: { label: 'WavLM', detail: 'In-the-Wild deepfakes' },
   phase_pitch: { label: 'Phase / Pitch', detail: 'rule-based vocoder artifacts' },
   replay: { label: 'Replay', detail: 'loudspeaker-replay detector · EchoFake LoRA (wideband)' },
+  codec: { label: 'Codec', detail: 'neural-codec/vocoder artifacts · Codecfake W2VAASIST (observing)' },
 }
 
 const card = {
@@ -98,7 +99,7 @@ export default function EnsemblePanel({ entry }) {
   const scores = entry?.component_scores
   if (!scores || Object.keys(scores).length === 0) return null
 
-  const order = ['nii', 'ssl', 'wavlm', 'stage1', 'spec', 'phase_pitch', 'replay']
+  const order = ['nii', 'ssl', 'wavlm', 'codec', 'stage1', 'spec', 'phase_pitch', 'replay']
   const keys = [
     ...order.filter(k => k in scores),
     ...Object.keys(scores).filter(k => !order.includes(k)),

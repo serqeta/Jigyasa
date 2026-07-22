@@ -14,28 +14,26 @@ def test_single_component_is_identity():
 
 
 def test_weighted_mean_dominates_when_above_floors():
-    # nii 0.50, ssl 0.15 → (0.5*0.8 + 0.15*0.2) / 0.65 = 0.6615…
-    # peak floors (0.8*0.8=0.64, 0.8*0.2=0.16) sit below the mean.
-    fused = fuse_scores({"nii": 0.8, "ssl": 0.2})
-    assert fused == pytest.approx((0.45 * 0.8 + 0.15 * 0.2) / 0.60)
+    # Two-detector ensemble: nii 0.70, replay 0.30.
+    # nii 0.9, replay 0.6 → (0.70*0.9 + 0.30*0.6) / 1.0 = 0.81
+    # peak floors (0.8*0.9=0.72, 0.6*0.6=0.36) sit below the mean.
+    fused = fuse_scores({"nii": 0.9, "replay": 0.6})
+    assert fused == pytest.approx((0.70 * 0.9 + 0.30 * 0.6) / 1.0)
 
 
 def test_peak_evidence_floor():
     # A confident validated detector must not be averaged away: fused is
-    # floored at each peak component's factor × its score.
-    fused = fuse_scores({"nii": 0.0, "ssl": 0.95, "phase_pitch": 0.0, "replay": 0.0})
-    assert fused == pytest.approx(0.8 * 0.95)
-    # nii floor: fake-median 0.997 → RED-range, but never the 0.85
-    # instant short-circuit on its own
-    fused = fuse_scores({"nii": 0.997, "ssl": 0.0, "wavlm": 0.0})
+    # floored at the peak component's factor × its score.
+    # nii (0.8): a lone confident nii lands in RED range but never the 0.85
+    # instant short-circuit on its own.
+    fused = fuse_scores({"nii": 0.997, "replay": 0.0})
     assert fused == pytest.approx(0.8 * 0.997)
     assert fused < 0.85
-    # wavlm solo ceiling stays AMBER (1% of genuine speakers hit 0.999)
-    fused = fuse_scores({"nii": 0.0, "ssl": 0.0, "wavlm": 1.0})
-    assert fused == pytest.approx(0.6)
-    # retired components get no floor and no weight, however confident
-    fused = fuse_scores({"nii": 0.05, "stage1": 0.99, "spec": 0.99})
-    assert fused < 0.10
+    # replay (0.6) stays AMBER-capped: nii present dilutes the mean, and the
+    # peak floor gives 0.57 < RED → a replayed clip needs corroboration for RED.
+    fused = fuse_scores({"nii": 0.02, "replay": 0.95})
+    assert fused == pytest.approx(0.6 * 0.95)
+    assert fused < 0.70
 
 
 def test_missing_components_renormalize():

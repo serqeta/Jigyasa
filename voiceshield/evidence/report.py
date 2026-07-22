@@ -42,6 +42,7 @@ _SHORT = {
     "phase_pitch": "Phase / Pitch",
     "spec": "AST",
     "stage1": "AASIST",
+    "codec": "Codec",
 }
 _MODEL_DESC = {
     "nii": "MMS-300M anti-deepfake",
@@ -51,6 +52,7 @@ _MODEL_DESC = {
     "phase_pitch": "Rule-based (explainability)",
     "spec": "AST spectrogram transformer",
     "stage1": "AASIST-L",
+    "codec": "Codecfake W2VAASIST (XLS-R)",
 }
 _MODEL_VERSIONS = (
     "nii=mms-300m-anti-deepfake · ssl=Gustking/wav2vec2-xlsr-deepfake · "
@@ -204,6 +206,19 @@ def render_report(
     det = _determination(timeline)
     last = timeline[-1] if timeline else {}
 
+    # Speaker-consistency advisory across the WHOLE window (not just the peak
+    # chunk) — reported separately, never folded into the spoof verdict.
+    spk_hits = [e for e in timeline if e.get("speaker_changed")]
+    max_drift = max((e.get("speaker_drift", 0) or 0.0 for e in timeline), default=0.0)
+    if spk_hits:
+        first_t = spk_hits[0].get("time")
+        speaker_advisory = (
+            f"Detected — voice differs from the call reference "
+            f"(first at {float(first_t):.1f} s, max drift {max_drift:.2f}); advisory only"
+        )
+    else:
+        speaker_advisory = "Not detected"
+
     if det is not None:
         ex = det["explanation"]
         state = ex.get("state", det.get("state", "grey"))
@@ -219,13 +234,12 @@ def render_report(
         top_artifact = (
             str(det.get("top_artifact")).replace("_", " ") if det.get("top_artifact") else "None"
         )
-        speaker = "Detected" if det.get("speaker_changed") else "Not detected"
     else:
         # No scored chunk — genuine/silent throughout.
         state, contributions, driver, driver_label = "green", [], "", "—"
         headline = "No synthetic or replay signatures detected across the analysed window."
         mechanism, reasons, score = "—", ["Every detector scored below the suspicion threshold."], 0.0
-        top_artifact, speaker = "None", "Not detected"
+        top_artifact = "None"
 
     fw = config.FUSION_WEIGHTS
     fw_caption = " · ".join(
@@ -257,7 +271,7 @@ def render_report(
         "FIRST_AMBER": _fmt_t(last.get("first_amber_t")),
         "FIRST_RED": _fmt_t(last.get("first_red_t")),
         "TOP_ARTIFACT": html.escape(top_artifact),
-        "SPEAKER_CHANGED": speaker,
+        "SPEAKER_CHANGED": speaker_advisory,
         "SNR": _snr_summary(timeline),
         "ACTION": _ACTION.get(state, "Review"),
         "REASONS_LI": _reasons_li(reasons),
