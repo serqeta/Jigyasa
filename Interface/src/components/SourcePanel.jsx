@@ -67,11 +67,9 @@ function Section({ title, children }) {
 }
 
 export default function SourcePanel() {
-  const { state, dispatch, analyzeFile, cancelAnalysis, connectWs, disconnectWs, resetState, exportEvidence, startMic, stopMic, captureSample } = useVoiceShield()
+  const { state, dispatch, analyzeFile, cancelAnalysis, connectWs, disconnectWs, resetState, exportEvidence, startMic, stopMic } = useVoiceShield()
   const fileRef = useRef(null)
   const [dragging, setDragging] = useState(false)
-  const [capLabel, setCapLabel] = useState('live_quiet_30cm')
-  const [capMsg, setCapMsg] = useState(null)
 
   const setFile = (f) => dispatch({
     type: 'SET_FILE',
@@ -221,28 +219,6 @@ export default function SourcePanel() {
             {state.micStatus === 'live' ? '■  Stop microphone' : '🎙  Start microphone'}
           </button>
 
-          {state.micStatus === 'live' && (
-            <div style={{ marginTop: 8, padding: '8px', border: '1px dashed var(--color-mist-divider)', borderRadius: 6 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--color-fog-text)', marginBottom: 6 }}>
-                Calibration capture (last 10 s)
-              </div>
-              <input
-                value={capLabel}
-                onChange={e => setCapLabel(e.target.value)}
-                style={{ width: '100%', padding: '4px 8px', fontSize: 12, fontFamily: 'var(--font-mono)', border: '1px solid var(--color-mist-divider)', borderRadius: 4, marginBottom: 6, background: 'var(--color-cream-surface)' }}
-              />
-              <button
-                style={ghostBtn(false)}
-                onClick={async () => {
-                  const r = await captureSample(capLabel)
-                  setCapMsg(r.error ? `✗ ${r.error}` : `✓ saved ${r.saved} (${r.seconds}s)`)
-                }}
-              >📼  Capture sample</button>
-              {capMsg && (
-                <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--color-fog-text)', marginTop: 4, wordBreak: 'break-all' }}>{capMsg}</div>
-              )}
-            </div>
-          )}
           {state.entries.length > 0 && (
             <button style={ghostBtn(false)} onClick={resetState}>↺  Reset engine</button>
           )}

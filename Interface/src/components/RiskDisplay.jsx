@@ -345,7 +345,7 @@ function SummaryGrid({ summary }) {
 }
 
 export default function RiskDisplay() {
-  const { state } = useVoiceShield()
+  const { state, generateReport } = useVoiceShield()
   const entry = state.current
   const sk = entry?.state || 'grey'
   const c = SC[sk] || SC.grey
@@ -431,6 +431,22 @@ export default function RiskDisplay() {
       }}>
         {speechActive ? ACTIONS[sk] : 'Waiting for voice. Risk scoring pauses until speech fills the analysis window.'}
       </div>
+
+      {/* Generate forensic report for this case */}
+      <button
+        onClick={generateReport}
+        disabled={state.reportStatus === 'generating'}
+        style={{
+          width: '100%', padding: '9px 14px', marginBottom: 14,
+          borderRadius: 'var(--radius-sm)', border: 'none',
+          background: state.reportStatus === 'generating' ? 'var(--color-mist-divider)' : 'var(--color-ink-black)',
+          color: state.reportStatus === 'generating' ? 'var(--color-ash-text)' : '#fff',
+          fontSize: 13, fontWeight: 600,
+          cursor: state.reportStatus === 'generating' ? 'wait' : 'pointer',
+        }}
+      >
+        {state.reportStatus === 'generating' ? '⌛ Generating forensic report…' : '📄 Generate forensic report'}
+      </button>
 
       {/* Why this verdict — plain-language rationale */}
       <WhyFlagged entry={entry} />

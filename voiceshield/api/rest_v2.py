@@ -13,8 +13,8 @@ import os
 import tempfile
 import threading
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from voiceshield import config
 
@@ -150,34 +150,6 @@ async def watermark_check(file: UploadFile = File(...)) -> JSONResponse:
         os.unlink(tmp_path)
 
 
-@router.post("/debug/capture")
-async def debug_capture(request: Request, label: str = "sample") -> JSONResponse:
-    """
-    Calibration helper: dump the current rolling buffer (last 10 s of the
-    live capture path) to eval_recordings/ as a labeled WAV. Explicitly
-    user-triggered; the folder is git-ignored. Used to collect matched
-    live-vs-replayed samples for replay-detector calibration.
-    """
-    import re
-    from datetime import datetime, timezone
-
-    import soundfile as sf
-
-    runner = request.app.state.runner
-    if runner is None:
-        raise HTTPException(status_code=503, detail="No active runner")
-    audio = runner.buffer.latest_seconds(config.BUFFER_SECONDS)
-    if len(audio) < config.SAMPLE_RATE:
-        raise HTTPException(status_code=409, detail="Buffer nearly empty — speak/play first")
-
-    safe = re.sub(r"[^A-Za-z0-9_-]", "_", label)[:60]
-    os.makedirs("eval_recordings", exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%H%M%S")
-    path = os.path.join("eval_recordings", f"{safe}_{stamp}.wav")
-    sf.write(path, audio, config.SAMPLE_RATE)
-    return JSONResponse({"saved": path, "seconds": round(len(audio) / config.SAMPLE_RATE, 1)})
-
-
 @router.post("/evidence/export")
 async def evidence_export(request: Request) -> JSONResponse:
     """
@@ -204,3 +176,78 @@ async def evidence_export(request: Request) -> JSONResponse:
         latest.component_scores if latest else None,
     )
     return JSONResponse(manifest)
+
+
+def _build_report_html(audio, timeline_json, component_scores, extra) -> str:
+    """Package evidence (PNGs + hash + manifest) into a temp dir and render
+    the self-contained forensic report HTML from it."""
+    import shutil
+
+    from voiceshield.evidence import export_evidence, render_report
+
+    tmp_dir = tempfile.mkdtemp(prefix="vs_report_")
+    try:
+        manifest = export_evidence(audio, timeline_json, component_scores, out_dir=tmp_dir)
+        return render_report(manifest, manifest["package_dir"], extra=extra)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@router.post("/report")
+async def report_from_file(file: UploadFile = File(...), source: str = Form("Uploaded audio")) -> HTMLResponse:
+    """Run the full ensemble on an uploaded file and return a self-contained
+    forensic report (HTML, images embedded) — the print-to-PDF deliverable."""
+    suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
+    content = await file.read()
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    def _work() -> str:
+        import librosa
+        import numpy as np
+
+        from voiceshield.audio.source import FileSource
+        from voiceshield.pipeline.runner import PipelineRunner
+
+        runner = PipelineRunner(FileSource(tmp_path), ensemble=_get_ensemble())
+        entries: list = []
+        runner.run_forever(entries.append)
+
+        audio, _ = librosa.load(tmp_path, sr=config.SAMPLE_RATE, mono=True)
+        audio = np.asarray(audio, dtype=np.float32)[-config.BUFFER_SAMPLES :]
+        timeline_json = [e.to_dict() for e in entries]
+        latest_cs = entries[-1].component_scores if entries else None
+        extra = {"source": f"{source} · wideband", "mode": "Ensemble (batch)"}
+        return _build_report_html(audio, timeline_json, latest_cs, extra)
+
+    try:
+        loop = asyncio.get_event_loop()
+        html = await loop.run_in_executor(None, _work)
+        return HTMLResponse(content=html)
+    finally:
+        os.unlink(tmp_path)
+
+
+@router.post("/report/live")
+async def report_from_buffer(request: Request) -> HTMLResponse:
+    """Forensic report for the CURRENT live rolling buffer (browser-mic mode)."""
+    runner = request.app.state.runner
+    if runner is None:
+        raise HTTPException(status_code=503, detail="No active runner")
+    audio = runner.buffer.latest_seconds(config.BUFFER_SECONDS)
+    if len(audio) == 0:
+        raise HTTPException(status_code=409, detail="Rolling buffer is empty")
+    latest = runner.timeline.latest()
+    extra = {"source": "Live microphone · wideband", "mode": "Ensemble (cascade)"}
+
+    loop = asyncio.get_event_loop()
+    html = await loop.run_in_executor(
+        None,
+        _build_report_html,
+        audio,
+        runner.timeline.to_json(),
+        latest.component_scores if latest else None,
+        extra,
+    )
+    return HTMLResponse(content=html)

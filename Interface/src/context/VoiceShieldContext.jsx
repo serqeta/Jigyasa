@@ -35,6 +35,10 @@ const initialState = {
   evidenceManifest: null,
 
   micStatus: 'idle', // idle | starting | live | error
+
+  view: 'dashboard', // dashboard | reports
+  reports: [],        // { id, ts, label, state, score, url }
+  reportStatus: 'idle', // idle | generating | done | error
 }
 
 function reducer(state, action) {
@@ -96,6 +100,12 @@ function reducer(state, action) {
       return { ...state, evidenceManifest: action.payload, evidenceStatus: 'done' }
     case 'SET_MIC_STATUS':
       return { ...state, micStatus: action.payload }
+    case 'SET_VIEW':
+      return { ...state, view: action.payload }
+    case 'SET_REPORT_STATUS':
+      return { ...state, reportStatus: action.payload }
+    case 'ADD_REPORT':
+      return { ...state, reports: [action.payload, ...state.reports] }
     case 'CLEAR_TIMELINE':
       return { ...state, entries: [], current: null, chunkCount: 0, summary: null, selectedEntry: null }
     default:
@@ -162,7 +172,7 @@ export function VoiceShieldProvider({ children }) {
   const stopMic = useCallback(() => {
     const m = micRef.current
     if (m) {
-      try { m.proc.disconnect(); m.node.disconnect() } catch {}
+      try { m.proc.disconnect(); m.node.disconnect(); m.sink?.disconnect() } catch {}
       try { m.stream.getTracks().forEach(t => t.stop()) } catch {}
       try { m.ctx.close() } catch {}
       try { m.ws.close() } catch {}
@@ -181,7 +191,14 @@ export function VoiceShieldProvider({ children }) {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       })
-      const ctx = new AudioContext()
+      const Ctx = window.AudioContext || window.webkitAudioContext
+      const ctx = new Ctx()
+      // Because we awaited getUserMedia above, this constructor runs outside
+      // the original click gesture, so the context can start "suspended" —
+      // in which case onaudioprocess never fires and no audio is ever sent.
+      // Explicitly resume it.
+      if (ctx.state === 'suspended') await ctx.resume()
+
       const node = ctx.createMediaStreamSource(stream)
       const proc = ctx.createScriptProcessor(4096, 1, 1)
       const base = stateRef.current.serverUrl.replace('https://', 'wss://').replace('http://', 'ws://')
@@ -204,11 +221,20 @@ export function VoiceShieldProvider({ children }) {
         }
         ws.send(out.buffer)
       }
+      // A ScriptProcessor only fires onaudioprocess while connected to a
+      // destination — but wiring it to ctx.destination pipes the mic to the
+      // speakers, which (with echo-cancellation off) howls back into the mic
+      // and rails the signal. Route through a MUTED gain node: the graph is
+      // still pulled, but nothing reaches the speakers.
+      const sink = ctx.createGain()
+      sink.gain.value = 0
       node.connect(proc)
-      proc.connect(ctx.destination)
-      micRef.current = { stream, ctx, node, proc, ws }
+      proc.connect(sink)
+      sink.connect(ctx.destination)
+      micRef.current = { stream, ctx, node, proc, sink, ws }
       ws.onopen = () => dispatch({ type: 'SET_MIC_STATUS', payload: 'live' })
-    } catch {
+    } catch (err) {
+      console.error('[mic] start failed:', err)
       dispatch({ type: 'SET_MIC_STATUS', payload: 'error' })
       stopMic()
     }
@@ -274,15 +300,49 @@ export function VoiceShieldProvider({ children }) {
     }
   }, [])
 
-  const captureSample = useCallback(async (label) => {
+  // Generate the self-contained forensic report (HTML + embedded images) for
+  // the current case: re-send the file (file mode) or use the live buffer.
+  const generateReport = useCallback(async () => {
+    dispatch({ type: 'SET_REPORT_STATUS', payload: 'generating' })
     try {
-      const res = await fetch(
-        `${stateRef.current.serverUrl}/v2/debug/capture?label=${encodeURIComponent(label || 'sample')}`,
-        { method: 'POST' },
-      )
+      const base = stateRef.current.serverUrl
+      let res
+      if (stateRef.current.mode === 'file') {
+        const f = stateRef.current.selectedFile
+        if (!f) throw new Error('No file analysed yet')
+        const fd = new FormData()
+        fd.append('file', f)
+        fd.append('source', f.name)
+        res = await fetch(`${base}/v2/report`, { method: 'POST', body: fd })
+      } else {
+        res = await fetch(`${base}/v2/report/live`, { method: 'POST' })
+      }
       if (!res.ok) throw new Error(await res.text())
-      return await res.json()
+      const html = await res.text()
+      const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+
+      // Peak-severity verdict for the case label (matches the report seal).
+      const rank = { grey: 0, green: 1, amber: 2, red: 3 }
+      const peak = stateRef.current.entries.reduce(
+        (a, e) => (!a || rank[e.state] > rank[a.state] || (e.state === a.state && e.score > a.score) ? e : a),
+        null,
+      )
+      const report = {
+        id: Date.now(),
+        ts: new Date().toISOString(),
+        label: stateRef.current.mode === 'file'
+          ? (stateRef.current.selectedFile?.name || 'Uploaded file')
+          : 'Live capture',
+        state: peak?.state || 'grey',
+        score: peak?.score ?? 0,
+        url,
+      }
+      dispatch({ type: 'ADD_REPORT', payload: report })
+      dispatch({ type: 'SET_REPORT_STATUS', payload: 'done' })
+      window.open(url, '_blank')
+      return report
     } catch (e) {
+      dispatch({ type: 'SET_REPORT_STATUS', payload: 'error' })
       return { error: e.message }
     }
   }, [])
@@ -318,7 +378,7 @@ export function VoiceShieldProvider({ children }) {
       connectWs, disconnectWs,
       analyzeFile, cancelAnalysis,
       resetState, exportJson, exportCsv, exportEvidence,
-      startMic, stopMic, captureSample,
+      startMic, stopMic, generateReport,
       checkHealth,
     }}>
       {children}

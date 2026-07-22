@@ -93,6 +93,36 @@ export default function NavBar() {
 
       <div style={{ flex: 1 }} />
 
+      {/* View toggle: Dashboard / Reports */}
+      {['dashboard', 'reports'].map(v => {
+        const active = state.view === v
+        return (
+          <button
+            key={v}
+            onClick={() => dispatch({ type: 'SET_VIEW', payload: v })}
+            style={{
+              ...btn,
+              background: active ? 'var(--color-ink-black)' : 'transparent',
+              color: active ? '#fff' : 'var(--color-slate-text)',
+              borderColor: active ? 'var(--color-ink-black)' : 'var(--color-mist-divider)',
+              fontWeight: active ? 600 : 500,
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}
+          >
+            {v === 'reports' && <span>📄</span>}
+            {v === 'dashboard' ? 'Dashboard' : 'Reports'}
+            {v === 'reports' && state.reports.length > 0 && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, background: active ? 'rgba(255,255,255,0.25)' : 'var(--color-mist-divider)',
+                borderRadius: 8, padding: '0 6px', marginLeft: 2,
+              }}>{state.reports.length}</span>
+            )}
+          </button>
+        )
+      })}
+
+      <div style={{ width: 1, height: 20, background: 'var(--color-mist-divider)' }} />
+
       {/* Mode indicator */}
       <div style={{
         fontSize: 11, fontWeight: 600,
