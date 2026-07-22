@@ -20,7 +20,6 @@ import os
 import numpy as np
 
 from voiceshield import config
-from voiceshield.classifier._infer_lock import run_on_gpu
 
 _LORA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "models", "replay_lora")
 _NII_W = os.path.join(os.path.dirname(__file__), "..", "..", "models", "nii_mms300m_converted.pt")
@@ -59,7 +58,7 @@ class ReplayScorer:
     def score(self, audio: np.ndarray) -> float:
         if audio is None or len(audio) == 0:
             return 0.0
-        return run_on_gpu(self._score_gpu, audio)
+        return self._score_gpu(audio)
 
     def _score_gpu(self, audio: np.ndarray) -> float:
         torch = self._torch

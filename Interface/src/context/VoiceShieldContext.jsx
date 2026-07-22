@@ -165,7 +165,17 @@ export function VoiceShieldProvider({ children }) {
   const connectWs = useCallback(() => {
     wsIntentionalRef.current = false
     if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null }
-    if (wsRef.current) { try { wsRef.current.close() } catch {} }
+    // Detach the old socket's handlers BEFORE closing it — otherwise its
+    // onclose fires the reconnect logic and we churn a fresh socket every
+    // 1.5 s (tearing down the working connection → socket.send spam + flicker).
+    if (wsRef.current) {
+      try {
+        wsRef.current.onclose = null
+        wsRef.current.onerror = null
+        wsRef.current.onmessage = null
+        wsRef.current.close()
+      } catch {}
+    }
     const base = stateRef.current.serverUrl
     const wsUrl = base.replace('https://', 'wss://').replace('http://', 'ws://') + '/v2/ws/risk'
     dispatch({ type: 'SET_WS_STATUS', payload: 'connecting' })

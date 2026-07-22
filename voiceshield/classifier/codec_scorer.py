@@ -33,7 +33,6 @@ import types
 import numpy as np
 
 from voiceshield import config
-from voiceshield.classifier._infer_lock import run_on_gpu
 
 _DIR = os.path.join(
     os.path.dirname(__file__), "..", "..", "models", "codecfake", "cotrain_w2v2aasist_CSAM"
@@ -100,7 +99,7 @@ class CodecScorer:
         return iv.to(self._device)
 
     def score(self, audio: np.ndarray) -> float:
-        return run_on_gpu(self._score_gpu, audio)
+        return self._score_gpu(audio)
 
     def _score_gpu(self, audio: np.ndarray) -> float:
         torch = self._torch

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from collections import deque
 from typing import Callable
@@ -9,7 +10,6 @@ import numpy as np
 from voiceshield import config
 from voiceshield.audio.buffer import RollingBuffer
 from voiceshield.audio.source import AudioSource
-from voiceshield.classifier._infer_lock import INFERENCE_LOCK
 from voiceshield.classifier.protocol import Scorer
 from voiceshield.features import GateState
 from voiceshield.features.artifact import top_artifact_name
@@ -20,6 +20,11 @@ from voiceshield.logger import StructuredLogger
 from voiceshield.pipeline.explain import explain_verdict
 from voiceshield.pipeline.state_engine import StateEngine, fuse_scores
 from voiceshield.pipeline.timeline import Timeline, TimelineEntry
+
+# Process-wide single-flight: only one chunk is scored at a time (the live
+# background loop + any upload/report runner share this). Serialization is what
+# prevents concurrent CUDA-context corruption; no per-scorer GPU thread needed.
+_INFERENCE_LOCK = threading.Lock()
 
 
 def _extract_features(audio: np.ndarray) -> dict[str, float]:
@@ -173,13 +178,12 @@ class PipelineRunner:
         chunk = self._source.read_chunk()
         chunk_idx, t_start, t_end = self._buffer.push(chunk)
 
-        # Serialize scoring process-wide. The models, CUDA context, Silero VAD
-        # and per-request runners are NOT safe to run concurrently on a single
-        # GPU — concurrency crashed the process (SIGSEGV / SIGABRT). One chunk
-        # is scored at a time; many connected devices queue (~150 ms each).
-        # The source read is deliberately OUTSIDE the lock so an idle live-mic
-        # stream (blocked awaiting audio) can't starve queued upload requests.
-        with INFERENCE_LOCK:
+        # Serialize scoring process-wide: the perpetual background pipeline loop
+        # and any on-demand /v2/analyze or /v2/report runner would otherwise hit
+        # the shared CUDA context concurrently and crash (SIGSEGV). Needed even
+        # for a single device. The source read stays OUTSIDE the lock so an idle
+        # live-mic stream can't block a queued upload.
+        with _INFERENCE_LOCK:
             return self._process_chunk(chunk, chunk_idx, t_end, t0)
 
     def _process_chunk(

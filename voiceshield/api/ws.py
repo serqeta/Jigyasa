@@ -4,6 +4,7 @@ import asyncio
 import json
 
 from fastapi import WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 
 
 class WebSocketManager:
@@ -23,6 +24,13 @@ class WebSocketManager:
         payload = json.dumps(data)
         dead: list[WebSocket] = []
         for ws in list(self._connections):
+            # Skip sockets that aren't fully connected — sending to a closed/
+            # closing socket raises inside uvicorn ("socket.send() raised
+            # exception") and, over a churny link, that per-chunk noise adds
+            # latency to the live loop. Drop them straight away instead.
+            if ws.application_state != WebSocketState.CONNECTED:
+                dead.append(ws)
+                continue
             try:
                 await ws.send_text(payload)
             except Exception:

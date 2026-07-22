@@ -19,7 +19,6 @@ import os
 import numpy as np
 
 from voiceshield import config
-from voiceshield.classifier._infer_lock import run_on_gpu
 
 _WEIGHTS = os.path.join(os.path.dirname(__file__), "..", "..", "models", "nii_mms300m_converted.pt")
 
@@ -67,12 +66,12 @@ class NIIScorer:
         head so it costs no extra forward pass beyond scoring."""
         if audio is None or len(audio) == 0:
             return np.zeros(1024, dtype=np.float32)
-        return run_on_gpu(lambda: self._pooled(audio).float().cpu().numpy().reshape(-1))
+        return self._pooled(audio).float().cpu().numpy().reshape(-1)
 
     def score(self, audio: np.ndarray) -> float:
         if audio is None or len(audio) == 0:
             return 0.0
-        return run_on_gpu(self._score_gpu, audio)
+        return self._score_gpu(audio)
 
     def _score_gpu(self, audio: np.ndarray) -> float:
         torch = self._torch
