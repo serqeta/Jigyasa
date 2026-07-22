@@ -9,6 +9,7 @@ import numpy as np
 from voiceshield import config
 from voiceshield.audio.buffer import RollingBuffer
 from voiceshield.audio.source import AudioSource
+from voiceshield.classifier._infer_lock import INFERENCE_LOCK
 from voiceshield.classifier.protocol import Scorer
 from voiceshield.features import GateState
 from voiceshield.features.artifact import top_artifact_name
@@ -172,6 +173,18 @@ class PipelineRunner:
         chunk = self._source.read_chunk()
         chunk_idx, t_start, t_end = self._buffer.push(chunk)
 
+        # Serialize scoring process-wide. The models, CUDA context, Silero VAD
+        # and per-request runners are NOT safe to run concurrently on a single
+        # GPU — concurrency crashed the process (SIGSEGV / SIGABRT). One chunk
+        # is scored at a time; many connected devices queue (~150 ms each).
+        # The source read is deliberately OUTSIDE the lock so an idle live-mic
+        # stream (blocked awaiting audio) can't starve queued upload requests.
+        with INFERENCE_LOCK:
+            return self._process_chunk(chunk, chunk_idx, t_end, t0)
+
+    def _process_chunk(
+        self, chunk: np.ndarray, chunk_idx: int, t_end: float, t0: float
+    ) -> TimelineEntry:
         # SNR gate over the latest 1 second
         audio_1s = self._buffer.latest_seconds(1.0)
         snr_db = estimate_snr(audio_1s)

@@ -13,6 +13,7 @@ from __future__ import annotations
 import numpy as np
 
 from voiceshield import config
+from voiceshield.classifier._infer_lock import run_on_gpu
 
 
 class HFScorer:
@@ -50,6 +51,9 @@ class HFScorer:
     def score(self, audio: np.ndarray) -> float:
         if audio is None or len(audio) == 0:
             return 0.0
+        return run_on_gpu(self._score_gpu, audio)
+
+    def _score_gpu(self, audio: np.ndarray) -> float:
         torch = self._torch
         inputs = self._extractor(
             audio.astype(np.float32),
