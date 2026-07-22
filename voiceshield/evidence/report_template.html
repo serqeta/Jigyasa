@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Voice Authenticity Forensic Report — UCO Bank</title>
+<!--
+  VoiceShield / Jigyasa — Forensic Audio Analysis Report (print-to-PDF template)
+
+  HOW TO USE
+  1. This is a SPECIMEN filled with example values so the layout is visible.
+     Replace values carrying a data-field="..." attribute with the matching
+     key from the evidence package (evidence.json + the two PNGs) produced by
+     voiceshield/evidence/export.py. A field-to-key map is in Appendix B.
+  2. To produce the PDF: open in a browser and Print → "Save as PDF",
+     A4, margins "Default", background graphics ON.
+  3. Fonts are system stacks only (no network fetch) so it renders identically
+     offline inside a bank environment.
+-->
+<style>
+  :root{
+    --ink:#14213d;          /* masthead / strong headings */
+    --body:#1f2733;         /* body text */
+    --muted:#5a6472;        /* secondary */
+    --faint:#8a93a3;        /* captions, metadata labels */
+    --rule:#d7dce3;         /* hairline rules */
+    --rule-strong:#b7c0cc;
+    --surface:#f5f7fa;      /* tinted panels */
+    --surface-2:#eef1f6;
+    --brass:#8a6d3b;        /* single institutional accent, used sparingly */
+    --paper:#ffffff;
+
+    --red:#b3261e;   --red-bg:#fbeae8;   --red-line:#e4b4af;
+    --amber:#946200; --amber-bg:#fbf1dc; --amber-line:#e6cf95;
+    --green:#1e6b45; --green-bg:#e6f2ea; --green-line:#a9d1ba;
+    --grey:#5a6472;  --grey-bg:#eef1f4;  --grey-line:#c6cdd6;
+
+    --sans:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --serif:Georgia,"Times New Roman",serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,"Liberation Mono",monospace;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:var(--sans);
+    color:var(--body);
+    background:#e9edf2;
+    font-size:10.5px;
+    line-height:1.5;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+
+  /* ---- Page geometry ---- */
+  .sheet{
+    width:210mm;
+    min-height:297mm;
+    margin:10mm auto;
+    background:var(--paper);
+    padding:20mm 18mm 22mm;
+    box-shadow:0 2px 14px rgba(20,33,61,.14);
+    position:relative;
+  }
+
+  /* Running confidentiality footer, repeated on every printed page */
+  .runfoot{
+    position:fixed;
+    bottom:6mm; left:0; right:0;
+    text-align:center;
+    font-family:var(--mono);
+    font-size:7px;
+    letter-spacing:.14em;
+    color:var(--faint);
+    text-transform:uppercase;
+  }
+  .runfoot .conf{color:var(--red);font-weight:700;}
+
+  /* ---- Masthead ---- */
+  .mast{
+    display:flex;justify-content:space-between;align-items:flex-start;
+    border-bottom:2.5px solid var(--ink);
+    padding-bottom:10px;
+  }
+  .mast .brandmark{display:flex;gap:11px;align-items:center;}
+  .mast .glyph{width:38px;height:38px;flex:none;}
+  .mast .brandtext .sys{
+    font-family:var(--serif);font-size:17px;font-weight:700;color:var(--ink);
+    letter-spacing:.01em;line-height:1;
+  }
+  .mast .brandtext .tag{
+    font-size:7.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--brass);
+    margin-top:4px;font-weight:700;
+  }
+  .mast .issuer{text-align:right;font-size:8px;color:var(--muted);line-height:1.55;}
+  .mast .issuer b{color:var(--body);}
+
+  .doctitle{
+    font-family:var(--serif);
+    font-size:26px;
+    color:var(--ink);
+    letter-spacing:.005em;
+    margin:16px 0 2px;
+    line-height:1.08;
+  }
+  .docsub{
+    font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);
+    border-bottom:1px solid var(--rule);padding-bottom:12px;
+  }
+
+  /* ---- Meta grid ---- */
+  .meta{
+    display:grid;grid-template-columns:repeat(4,1fr);
+    gap:0;border:1px solid var(--rule);border-radius:2px;margin-top:14px;
+    overflow:hidden;
+  }
+  .meta div{
+    padding:7px 9px;border-right:1px solid var(--rule);border-top:1px solid var(--rule);
+  }
+  .meta div:nth-child(-n+4){border-top:none;}
+  .meta div:nth-child(4n){border-right:none;}
+  .meta .k{font-size:7px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);font-weight:700;}
+  .meta .v{font-family:var(--mono);font-size:9.5px;color:var(--body);margin-top:3px;word-break:break-word;}
+
+  /* ---- Determination seal ---- */
+  .determination{
+    display:flex;gap:14px;margin-top:18px;align-items:stretch;
+    page-break-inside:avoid;
+  }
+  .seal{
+    flex:none;width:150px;border:2px solid;border-radius:3px;
+    padding:12px 12px 11px;text-align:center;position:relative;
+  }
+  .seal .lbl{font-size:7px;letter-spacing:.18em;text-transform:uppercase;font-weight:700;opacity:.8;}
+  .seal .state{font-family:var(--serif);font-size:34px;font-weight:700;line-height:1;margin:5px 0 2px;letter-spacing:.02em;}
+  .seal .score{font-family:var(--mono);font-size:11px;font-weight:700;}
+  .seal .score small{font-weight:400;opacity:.7;}
+  .seal .mech{
+    margin-top:8px;padding-top:7px;border-top:1px dashed currentColor;
+    font-size:7.5px;letter-spacing:.1em;text-transform:uppercase;
+  }
+  .seal.red{border-color:var(--red-line);background:var(--red-bg);color:var(--red);}
+  .seal.amber{border-color:var(--amber-line);background:var(--amber-bg);color:var(--amber);}
+  .seal.green{border-color:var(--green-line);background:var(--green-bg);color:var(--green);}
+  .seal.grey{border-color:var(--grey-line);background:var(--grey-bg);color:var(--grey);}
+
+  .finding{flex:1;border:1px solid var(--rule);border-radius:3px;padding:11px 13px;background:var(--surface);}
+  .finding .headline{font-family:var(--serif);font-size:13.5px;color:var(--ink);line-height:1.3;margin-bottom:7px;}
+  .finding .grid2{display:grid;grid-template-columns:1fr 1fr;gap:5px 16px;}
+  .finding .row{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dotted var(--rule);padding:2.5px 0;}
+  .finding .row .rk{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+  .finding .row .rv{font-family:var(--mono);font-size:9px;color:var(--body);font-weight:700;text-align:right;}
+
+  /* ---- Section scaffolding ---- */
+  section{margin-top:20px;page-break-inside:avoid;}
+  h2.sec{
+    display:flex;align-items:baseline;gap:9px;
+    font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink);
+    border-bottom:1.5px solid var(--ink);padding-bottom:5px;margin:0 0 9px;font-weight:700;
+  }
+  h2.sec .num{
+    font-family:var(--mono);font-size:10px;color:var(--brass);font-weight:700;
+    letter-spacing:0;flex:none;
+  }
+  p{margin:0 0 7px;}
+  .lead{color:var(--muted);}
+
+  /* reasons list */
+  ul.reasons{margin:0;padding:0;list-style:none;}
+  ul.reasons li{
+    position:relative;padding:5px 0 5px 20px;border-bottom:1px solid var(--rule);font-size:10px;
+  }
+  ul.reasons li:before{
+    content:"";position:absolute;left:2px;top:9px;width:9px;height:9px;
+    border:1.5px solid var(--brass);border-radius:1px;
+  }
+  ul.reasons li.primary:before{background:var(--brass);}
+  ul.reasons li b{color:var(--ink);}
+
+  /* ---- Tables ---- */
+  table{width:100%;border-collapse:collapse;font-size:9px;margin-top:2px;}
+  thead th{
+    background:var(--ink);color:#fff;font-weight:600;text-align:left;
+    padding:6px 8px;font-size:7.5px;letter-spacing:.09em;text-transform:uppercase;
+  }
+  thead th.num,tbody td.num{text-align:right;font-family:var(--mono);}
+  tbody td{padding:5.5px 8px;border-bottom:1px solid var(--rule);vertical-align:top;}
+  tbody tr:nth-child(even) td{background:var(--surface);}
+  tbody td.mono{font-family:var(--mono);}
+  tr.driver td{background:var(--surface-2) !important;}
+  tr.driver td:first-child{box-shadow:inset 3px 0 0 var(--brass);font-weight:700;}
+  .muted-w{color:var(--faint);}
+  .caption{font-size:7.5px;color:var(--faint);margin-top:5px;font-style:italic;}
+
+  .pill{
+    display:inline-block;font-family:var(--mono);font-size:7.5px;font-weight:700;
+    padding:1px 6px;border-radius:2px;letter-spacing:.04em;text-transform:uppercase;
+  }
+  .pill.red{background:var(--red-bg);color:var(--red);}
+  .pill.amber{background:var(--amber-bg);color:var(--amber);}
+  .pill.green{background:var(--green-bg);color:var(--green);}
+  .pill.grey{background:var(--grey-bg);color:var(--grey);}
+
+  /* ---- Figure plates ---- */
+  .plates{display:grid;grid-template-columns:1fr;gap:14px;}
+  figure{margin:0;border:1px solid var(--rule-strong);border-radius:3px;overflow:hidden;background:#fff;}
+  figure .plate{height:200px;width:100%;display:block;object-fit:fill;}
+  figure figcaption{
+    padding:6px 9px;border-top:1px solid var(--rule);font-size:8px;color:var(--muted);
+  }
+  figure figcaption b{color:var(--ink);display:block;font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:2px;}
+  figure figcaption .fn{font-family:var(--mono);color:var(--brass);font-size:7.5px;}
+
+  /* ---- Integrity seal ---- */
+  .integrity{border:2px solid var(--ink);border-radius:3px;padding:12px 14px;background:var(--surface);}
+  .integrity .hashline{font-family:var(--mono);font-size:9.5px;color:var(--ink);word-break:break-all;
+    background:#fff;border:1px dashed var(--rule-strong);padding:7px 9px;border-radius:2px;margin:5px 0 0;font-weight:700;}
+  .kv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 18px;margin-top:10px;}
+  .kv .item .k{font-size:7px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:700;}
+  .kv .item .v{font-family:var(--mono);font-size:9px;color:var(--body);margin-top:2px;word-break:break-word;}
+
+  .snapshot{margin-top:11px;border-top:1px solid var(--rule);padding-top:9px;}
+  .snapshot .k{font-size:7px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:700;}
+  .snapshot code{font-family:var(--mono);font-size:8.5px;color:var(--body);}
+
+  /* ---- Callouts ---- */
+  .note{border-left:3px solid var(--brass);background:var(--surface);padding:9px 12px;border-radius:0 2px 2px 0;font-size:9.5px;color:var(--muted);}
+  .note b{color:var(--ink);}
+
+  /* ---- Signatures ---- */
+  .sign{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:26px;}
+  .sign .box{border-top:1px solid var(--body);padding-top:6px;}
+  .sign .box .who{font-size:9px;font-weight:700;color:var(--ink);}
+  .sign .box .role{font-size:8px;color:var(--muted);}
+  .sign .box .line{height:26px;}
+  .sign .box .stamp{font-size:7.5px;color:var(--faint);font-family:var(--mono);margin-top:3px;}
+
+  /* ---- Appendix ---- */
+  .glossary dt{font-weight:700;color:var(--ink);font-size:9.5px;margin-top:7px;}
+  .glossary dd{margin:1px 0 0;font-size:9px;color:var(--muted);}
+  .mapgrid{width:100%;border-collapse:collapse;font-size:8.5px;}
+  .mapgrid td,.mapgrid th{border:1px solid var(--rule);padding:4px 7px;text-align:left;}
+  .mapgrid th{background:var(--surface-2);font-size:7.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+  .mapgrid code{font-family:var(--mono);color:var(--brass);}
+
+  .specimen-band{
+    background:var(--amber-bg);border:1px solid var(--amber-line);color:var(--amber);
+    font-family:var(--mono);font-size:8px;letter-spacing:.1em;text-transform:uppercase;
+    text-align:center;padding:5px;border-radius:2px;margin-bottom:14px;font-weight:700;
+  }
+
+  @page{ size:A4; margin:14mm; }
+  @media print{
+    body{background:#fff;font-size:10px;}
+    .sheet{width:auto;min-height:0;margin:0;padding:0;box-shadow:none;}
+    .specimen-band{display:none;}
+    .runfoot{position:fixed;}
+    section{page-break-inside:avoid;}
+  }
+</style>
+</head>
+<body>
+<div class="runfoot"><span class="conf">Confidential</span> &nbsp;·&nbsp; Forensic Audio Analysis &nbsp;·&nbsp; Report {{REPORT_ID}} &nbsp;·&nbsp; Reproducible via integrity hash below</div>
+
+<div class="sheet">
+
+  <!-- ============ MASTHEAD ============ -->
+  <header class="mast">
+    <div class="brandmark">
+      <div class="brandtext">
+        <div class="sys">UCO Bank</div>
+        <div class="tag">Fraud Risk &amp; Forensics</div>
+      </div>
+    </div>
+    <div class="issuer">
+      <b>Issued by</b> &nbsp;UCO Bank — Fraud Risk &amp; Forensics<br/>
+      Head Office: 10, B.T.M. Sarani (Biplabi Trailokya Maharaj Sarani),<br/>
+      Kolkata 700001, West Bengal, India &nbsp;·&nbsp; Toll-free 1800 103 0123<br/>
+      Report class: Advisory forensic determination<br/>
+      Jurisdiction: India (DPDP 2023) · cross-border: GDPR / BIPA
+    </div>
+  </header>
+
+  <h1 class="doctitle">Voice Authenticity Forensic Report</h1>
+  <div class="docsub">Synthetic-speech &amp; replay determination for a monitored voice interaction</div>
+
+  <!-- ============ CASE METADATA ============ -->
+  <div class="meta">
+    <div><div class="k">Case reference</div><div class="v" data-field="case_id">{{CASE_ID}}</div></div>
+    <div><div class="k">Report ID</div><div class="v" data-field="report_id">{{REPORT_ID}}</div></div>
+    <div><div class="k">Generated (UTC)</div><div class="v" data-field="created_utc">{{CREATED_UTC}}</div></div>
+    <div><div class="k">Analyst / operator</div><div class="v" data-field="analyst">{{ANALYST}}</div></div>
+
+    <div><div class="k">Channel / source</div><div class="v" data-field="source">{{SOURCE}}</div></div>
+    <div><div class="k">Audio analysed</div><div class="v"><span data-field="audio_seconds">{{AUDIO_SECONDS}}</span> s</div></div>
+    <div><div class="k">Sample rate</div><div class="v"><span data-field="sample_rate">{{SAMPLE_RATE}}</span> Hz</div></div>
+    <div><div class="k">Pipeline mode</div><div class="v" data-field="mode">{{MODE}}</div></div>
+  </div>
+
+  <!-- ============ SECTION 1 — DETERMINATION ============ -->
+  <section>
+    <div class="determination">
+      <!-- Seal class = risk state: red | amber | green | grey -->
+      <div class="seal {{STATE_CLASS}}" data-field="state_seal">
+        <div class="lbl">Determination</div>
+        <div class="state" data-field="state">{{STATE}}</div>
+        <div class="score">Fused <span data-field="score">{{SCORE}}</span><small> / 1.00</small></div>
+        <div class="mech">Basis: <span data-field="mechanism">{{MECHANISM}}</span></div>
+      </div>
+      <div class="finding">
+        <div class="headline" data-field="headline">{{HEADLINE}}</div>
+        <div class="grid2">
+          <div class="row"><span class="rk">Primary driver</span><span class="rv" data-field="driver_label">{{DRIVER_LABEL}}</span></div>
+          <div class="row"><span class="rk">Decision mechanism</span><span class="rv" data-field="mechanism">{{MECHANISM}}</span></div>
+          <div class="row"><span class="rk">First AMBER at</span><span class="rv" data-field="first_amber_t">{{FIRST_AMBER}}</span></div>
+          <div class="row"><span class="rk">First RED at</span><span class="rv" data-field="first_red_t">{{FIRST_RED}}</span></div>
+          <div class="row"><span class="rk">Top waveform cue</span><span class="rv" data-field="top_artifact">{{TOP_ARTIFACT}}</span></div>
+          <div class="row"><span class="rk">Speaker change</span><span class="rv" data-field="speaker_changed">{{SPEAKER_CHANGED}}</span></div>
+          <div class="row"><span class="rk">Mean SNR</span><span class="rv" data-field="snr">{{SNR}}</span></div>
+          <div class="row"><span class="rk">Recommended action</span><span class="rv" style="color:var(--{{STATE_CLASS}})" data-field="action">{{ACTION}}</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:12px">
+      <b>Nature of this determination.</b> This is an <b>advisory</b> analysis system. A RED result means
+      "verify harder", not an instruction to block or decline. The determination reflects the balance of forensic
+      evidence over the analysed window and is intended to support, not replace, human review and the institution's
+      existing authentication controls.
+    </p>
+  </section>
+
+  <!-- ============ SECTION 2 — BASIS OF OPINION ============ -->
+  <section>
+    <h2 class="sec"><span class="num">01</span> Basis of opinion</h2>
+    <p class="lead">The determination is a faithful decomposition of the risk-fusion computation. The reasons below are
+      generated from the same weighting that produced the score; they are not a post-hoc narrative.</p>
+    <ul class="reasons" data-field="reasons">
+{{REASONS_LI}}
+    </ul>
+  </section>
+
+  <!-- ============ SECTION 3 — ENSEMBLE RESULTS ============ -->
+  <section>
+    <h2 class="sec"><span class="num">02</span> Detector ensemble results</h2>
+    <p class="lead">Each component returns a spoof-positive probability in [0, 1]. The fused score is a weighted mean over
+      the components present, floored by the peak-evidence rule so a single high-confidence validated detector is not
+      averaged away. Contribution = additive share of the weighted mean.</p>
+    <table data-field="contributions">
+      <thead>
+        <tr>
+          <th>Detector</th><th>Model</th>
+          <th class="num">Raw score</th><th class="num">Weight</th>
+          <th class="num">Contribution</th><th class="num">Peak floor</th>
+        </tr>
+      </thead>
+      <tbody>
+{{CONTRIBUTIONS_ROWS}}
+      </tbody>
+    </table>
+    <div class="caption">
+      Fusion weights (applied): {{FUSION_WEIGHTS_CAPTION}}.
+      &nbsp;Decision thresholds: AMBER ≥ {{AMBER_TH}} · RED ≥ {{RED_TH}} · instant-RED ≥ 0.85. Zero-weight components are computed
+      and shown for transparency but do not influence the verdict.
+    </div>
+  </section>
+
+  <!-- ============ SECTION 4 — VISUAL EVIDENCE ============ -->
+  <section>
+    <h2 class="sec"><span class="num">03</span> Forensic visual evidence</h2>
+    <div class="plates">
+      <figure>
+        {{SPECTROGRAM_IMG}}
+        <figcaption>
+          <b>Figure 1 — Mel spectrogram</b>
+          Time (x) vs mel-frequency (y), dB-scaled, over the 10 s buffer. Low frequencies at the bottom.
+          <span class="fn">file: spectrogram.png</span>
+        </figcaption>
+      </figure>
+      <figure>
+        {{PHASE_IMG}}
+        <figcaption>
+          <b>Figure 2 — Phase discontinuity map</b>
+          Per-(frequency, frame) 2nd-difference of unwrapped STFT phase, in [0, 1]. Bright columns = phase resets
+          characteristic of waveform synthesis. <span class="fn">file: phase_heatmap.png</span>
+        </figcaption>
+      </figure>
+    </div>
+    <div class="caption">Both plates are rendered directly from the raw analysed buffer; they are not re-encoded or
+      enhanced. The buffer that produced them is fixed by the integrity hash in Section 6.</div>
+  </section>
+
+  <!-- ============ SECTION 5 — TEMPORAL ANALYSIS ============ -->
+  <section>
+    <h2 class="sec"><span class="num">04</span> Temporal analysis (chunk timeline)</h2>
+    <p class="lead">Per-500 ms chunk over the 10 s window. The user-facing state is smoothed and escalates only after
+      sustained evidence (2 consecutive suspicious chunks); RED does not auto-de-escalate.</p>
+    <table data-field="timeline">
+      <thead>
+        <tr>
+          <th class="num">t (s)</th><th>State</th><th class="num">Fused</th>
+          <th class="num">NII</th><th class="num">Replay</th>
+          <th class="num">SNR dB</th><th class="num">Voiced</th>
+          <th>Top cue</th><th class="num">Spk drift</th>
+        </tr>
+      </thead>
+      <tbody>
+{{TIMELINE_ROWS}}
+      </tbody>
+    </table>
+    <div class="caption">Per-500 ms chunk over the analysed window. The full ring is
+      retained verbatim in the machine-readable envelope (evidence.json → <code>timeline</code>).</div>
+  </section>
+
+  <!-- ============ SECTION 6 — INTEGRITY & PROVENANCE ============ -->
+  <section>
+    <h2 class="sec"><span class="num">05</span> Integrity &amp; provenance</h2>
+    <div class="integrity">
+      <div style="font-size:8px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);font-weight:700;">
+        SHA-256 of analysed audio buffer (raw float32 bytes)
+      </div>
+      <div class="hashline" data-field="audio_sha256">{{AUDIO_SHA256}}</div>
+      <div class="kv">
+        <div class="item"><div class="k">Buffer length</div><div class="v"><span data-field="audio_seconds">{{AUDIO_SECONDS}}</span> s · <span data-field="sample_rate">{{SAMPLE_RATE}}</span> Hz</div></div>
+        <div class="item"><div class="k">Verdict ID</div><div class="v" data-field="verdict_id">{{VERDICT_ID}}</div></div>
+        <div class="item"><div class="k">Engine build</div><div class="v" data-field="git_commit">{{GIT_COMMIT}}</div></div>
+      </div>
+      <div class="snapshot">
+        <div class="k" style="margin-bottom:4px;">Model versions</div>
+        <code data-field="model_versions">{{MODEL_VERSIONS}}</code>
+        <div class="k" style="margin:9px 0 4px;">Configuration snapshot</div>
+        <code data-field="config_snapshot">{{CONFIG_SNAPSHOT}}</code>
+      </div>
+    </div>
+    <p class="note" style="margin-top:11px">
+      <b>Reproducibility.</b> The pipeline is deterministic. Re-running this exact engine build against an audio buffer
+      whose SHA-256 matches the value above, under the configuration snapshot shown, reproduces this determination and
+      every figure in this report. Any change to the audio breaks the hash and invalidates the package.
+    </p>
+  </section>
+
+  <!-- ============ SECTION 7 — HANDLING, PRIVACY & RETENTION ============ -->
+  <section>
+    <h2 class="sec"><span class="num">06</span> Handling, privacy &amp; retention</h2>
+    <table>
+      <tbody>
+        <tr><td style="width:34%;font-weight:700;color:var(--ink)">Capture &amp; storage</td>
+          <td>Live analysis uses a 10-second in-memory rolling buffer only. No persistent recording is made by default.
+            This evidence package was created solely on an explicit, logged save-for-audit request.</td></tr>
+        <tr><td style="font-weight:700;color:var(--ink)">Data classification</td>
+          <td>Analysed audio may constitute personal data (and biometric data where speaker identity is derived).
+            Handle under the institution's data-protection policy — DPDP Act 2023 / DPDP Rules 2025 (India);
+            GDPR Art. 9 and BIPA where applicable.</td></tr>
+        <tr><td style="font-weight:700;color:var(--ink)">Localization &amp; encryption</td>
+          <td>For payment-linked interactions, store within India (RBI Storage of Payment System Data, 2018).
+            At rest AES-256; in transit TLS 1.3. Access restricted to authorised fraud/forensics personnel.</td></tr>
+        <tr><td style="font-weight:700;color:var(--ink)">Retention &amp; erasure</td>
+          <td>Retain only for the stated case purpose; erase on purpose fulfilment or consent withdrawal
+            (DPDP Rule 8). Retention period: <span data-field="retention">{{RETENTION}}</span>.</td></tr>
+        <tr><td style="font-weight:700;color:var(--ink)">Consent basis</td>
+          <td data-field="consent_basis">{{CONSENT_BASIS}}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ SECTION 8 — LIMITATIONS & SCOPE ============ -->
+  <section>
+    <h2 class="sec"><span class="num">07</span> Limitations &amp; scope</h2>
+    <ul class="reasons">
+      <li><b>Advisory, not conclusive.</b> At low fraud base rates a single confident chunk has limited precision; the
+        determination relies on sustained, multi-chunk evidence and should be combined with other controls.</li>
+      <li><b>Replay detection is wideband only.</b> The replay detector covers consumer-device loudspeaker replay and is
+        <b>not</b> validated for narrowband telephony (replay cues sit above the phone passband).</li>
+      <li><b>Audio quality bounds confidence.</b> Windows below 12 dB SNR are marked REDUCED and below 8 dB read GREY
+        (insufficient to judge); heavy noise lowers detector confidence.</li>
+      <li><b>Speaker-consistency is advisory.</b> Any speaker-change flag is reported separately and never folded into the
+        synthetic-speech score.</li>
+      <li><b>Model scope.</b> Detectors are strongest on the attack families in their training/benchmark set; novel
+        synthesis methods may be under-scored.</li>
+    </ul>
+  </section>
+
+  <!-- ============ SECTION 9 — CERTIFICATION ============ -->
+  <section>
+    <h2 class="sec"><span class="num">08</span> Certification</h2>
+    <p class="lead">I certify that this report was generated by the analysis engine build identified in Section 5 from
+      the audio buffer whose SHA-256 is recorded therein, and that it has not been altered.</p>
+    <div class="sign">
+      <div class="box">
+        <div class="line"></div>
+        <div class="who" data-field="analyst_name">{{ANALYST_NAME}}</div>
+        <div class="role">Fraud Forensics Analyst — UCO Bank</div>
+        <div class="stamp">Signed (UTC): ____________________</div>
+      </div>
+      <div class="box">
+        <div class="line"></div>
+        <div class="who" data-field="reviewer_name">{{REVIEWER_NAME}}</div>
+        <div class="role">Compliance / Second-line review</div>
+        <div class="stamp">Signed (UTC): ____________________</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ APPENDIX A — GLOSSARY ============ -->
+  <section>
+    <h2 class="sec"><span class="num">A</span> Appendix — glossary</h2>
+    <dl class="glossary" style="columns:2;column-gap:22px;">
+      <dt>Determination (Green / Amber / Red / Grey)</dt>
+      <dd>Green: no synthetic/replay signature. Amber: possible signature — verify. Red: strong signature — verify harder.
+        Grey: audio insufficient to judge (silence / low SNR).</dd>
+      <dt>Fused score</dt>
+      <dd>Weighted mean of detector scores in [0, 1], floored by the peak-evidence rule.</dd>
+      <dt>Mechanism (Consensus / Peak)</dt>
+      <dd>Consensus: multiple models agree. Peak: one high-confidence validated detector floors the score so it is not
+        averaged away.</dd>
+      <dt>Peak floor</dt>
+      <dd>The minimum fused value a detector alone would impose, per its calibrated confidence factor.</dd>
+      <dt>SNR gate</dt>
+      <dd>Signal-to-noise quality gate: Normal ≥ 12 dB, Reduced 8–12 dB, Grey &lt; 8 dB.</dd>
+      <dt>Speaker drift</dt>
+      <dd>Cosine distance of the current voice from the call's reference voice; a sustained jump flags a possible speaker
+        change (advisory).</dd>
+    </dl>
+  </section>
+
+  <!-- ============ APPENDIX B — FIELD MAP ============ -->
+  <section>
+    <h2 class="sec"><span class="num">B</span> Appendix — evidence.json field map</h2>
+    <p class="lead">Wire each <code>data-field</code> in this template to the corresponding key of the evidence package
+      produced by <code>voiceshield/evidence/export.py</code>.</p>
+    <table class="mapgrid">
+      <thead><tr><th>Template field</th><th>Source (evidence.json)</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>created_utc</code></td><td><code>created_utc</code></td><td>Package timestamp</td></tr>
+        <tr><td><code>audio_sha256</code></td><td><code>audio_sha256</code></td><td>Integrity anchor</td></tr>
+        <tr><td><code>audio_seconds</code> / <code>sample_rate</code></td><td><code>audio_seconds</code> / <code>sample_rate</code></td><td>Buffer descriptors</td></tr>
+        <tr><td><code>state</code> / <code>score</code> / <code>mechanism</code> / <code>driver_label</code> / <code>headline</code> / <code>reasons</code></td><td><code>verdict_explanation.*</code></td><td>From explain_verdict()</td></tr>
+        <tr><td><code>contributions</code> (table)</td><td><code>verdict_explanation.contributions[]</code></td><td>name, label, score, weight, contribution, peak_floor</td></tr>
+        <tr><td><code>fusion weights</code> / thresholds</td><td><code>fusion_weights</code> + config</td><td>Config snapshot</td></tr>
+        <tr><td><code>timeline</code> (table)</td><td><code>timeline[]</code></td><td>time, state, score, snr_db, voiced_ratio, component_scores, top_artifact, speaker_drift</td></tr>
+        <tr><td><code>first_amber_t</code> / <code>first_red_t</code></td><td>latest <code>timeline[]</code> entry</td><td>Time-to-detection</td></tr>
+        <tr><td><code>spectrogram_png</code> / <code>phase_heatmap_png</code></td><td><code>files.spectrogram</code> / <code>files.phase_heatmap</code></td><td>Embed the PNGs</td></tr>
+        <tr><td><code>case_id</code> / <code>analyst</code> / <code>source</code> / <code>retention</code> / <code>consent_basis</code></td><td>institution-supplied</td><td>Not emitted by the engine; filled by the bank's case system</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</div>
+</body>
+</html>
